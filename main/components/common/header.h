@@ -1,6 +1,8 @@
 #ifndef HEADER_H
 #define HEADER_H
 
+#pragma once
+
 #include <stdint.h>
 
 #define MAC_SIZE 6
