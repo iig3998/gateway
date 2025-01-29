@@ -9,6 +9,8 @@
         "utility": "c",
         "ostream": "c",
         "ranges": "c",
-        "alarm.h": "c"
+        "alarm.h": "c",
+        "gateway.h": "c",
+        "siren.h": "c"
     }
 }
