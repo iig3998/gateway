@@ -1,0 +1,20 @@
+idf_component_register(
+                    SRCS "main.c"
+                    SRCS "components/sensor/sensor.c"
+                    SRCS "components/wifi/wifi.c"
+                    SRCS "components/common/common.c"
+                    SRCS "components/common/header.c"
+                    SRCS "components/gateway/gateway.c"
+                    SRCS "components/siren/siren.c"
+                    SRCS "components/mqtt/mqtt.c"
+                    SRCS "components/ethernet/ethernet.c"
+                    INCLUDE_DIRS "components/sensor"
+                    INCLUDE_DIRS "components/wifi"
+                    INCLUDE_DIRS "components/common"
+                    INCLUDE_DIRS "components/gateway"
+                    INCLUDE_DIRS "components/siren"
+                    INCLUDE_DIRS "components/keyboard"
+                    INCLUDE_DIRS "components/mqtt"
+                    INCLUDE_DIRS "components/ethernet"
+                    REQUIRES esp_wifi nvs_flash esp_timer mqtt esp_eth
+                    )
