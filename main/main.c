@@ -33,8 +33,8 @@
 #define NUM_RETRASMISSION_TIME 3
 
 /* Define events */
-#define ALARM_STATUS   (1 << 0)
-#define SIREN_STATUS   (1 << 1)
+#define DATA_SENT             (1 << 0)
+#define DATA_RECEIVED         (1 << 1)
 
 EventGroupHandle_t xEventGroupAlarm;
 
@@ -60,6 +60,8 @@ static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status
     } else if (status == ESP_NOW_SEND_FAIL){
         ESP_LOGE(TAG_MAIN, "Data not sent correctly");
     }
+
+    xEventGroupClearBits(xEventGroupAlarm, DATA_SENT);
 
     return;
 }
@@ -108,6 +110,7 @@ void sensor_task(void *arg) {
 
     esp_err_t err = ESP_FAIL;
     uint16_t crc = 0;
+    esp_now_peer_num_t num_peer;
     esp_now_peer_info_t peer;
     node_sensor_msg_t msg_sensor;
     node_gateway_msg_t msg_gateway;
@@ -139,31 +142,41 @@ void sensor_task(void *arg) {
                                     ESP_LOGI(TAG_MAIN, "Add new device");
                                     node_sesnors_list = add_sensors_to_list(node_sesnors_list, msg_sensor);
 
+                                    /* Add new peer to list */
                                     memset(&peer, 0, sizeof(esp_now_peer_info_t));
                                     peer.channel = ESPNOW_WIFI_CHANNEL;
                                     peer.ifidx = WIFI_IF_STA;
                                     peer.encrypt = false;
 
-                                    memcpy(peer.peer_addr, msg_sensor.header.mac, ESP_NOW_ETH_ALEN);
                                     err = esp_now_add_peer(&peer);
                                     if(err != ESP_OK){
                                         ESP_LOGE(TAG_MAIN, "Error, peer not added");
                                     }
 
+                                    err = esp_now_get_peer_num(&num_peer);
+                                    if(err == ESP_OK){
+                                        ESP_LOGI(TAG_MAIN, "There are %d nodes registered", num_peer.total_num);
+                                    } else {
+                                        ESP_LOGI(TAG_MAIN, "Number nodes not available");
+                                    }
                                 } else {
-                                    ESP_LOGW(TAG_MAIN, "Warning, device already exist. Skip");
+                                    ESP_LOGW(TAG_MAIN, "Warning, device id: %u already exist. Skip", msg_sensor.header.id_node);
                                 }
                             break;
-                
+
                             case UPDATE:
-                                ESP_LOGI(TAG_MAIN, "Update state external siren inside list");
-                                if(msg_sensor.state && active_alarm) {
-                                    ESP_LOGI(TAG_MAIN, "Send command for run siren");
+                                if(get_sensors_from_list(node_sesnors_list, msg_sensor.header.id_node)) {
+                                    ESP_LOGI(TAG_MAIN, "Update state sensor inside list");
+                                    if(msg_sensor.state && active_alarm) {
+                                        ESP_LOGI(TAG_MAIN, "Send command for start siren");
+                                    }
+                                } else {
+                                    ESP_LOGW(TAG_MAIN, "Warning, sensor id %u not registered", msg_sensor.header.id_node);
                                 }
                             break;
                             
                             case DEL:
-                                ESP_LOGW(TAG_MAIN, "Delete command not used");
+                                ESP_LOGI(TAG_MAIN, "Delete command not used");
                             break;
 
                             default:
@@ -178,11 +191,6 @@ void sensor_task(void *arg) {
                 }
             }
 
-            /* Send response to sensor */
-            err = esp_now_send(msg_sensor.header.mac, (uint8_t *)&msg_gateway, sizeof(msg_gateway));
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG_MAIN, "Error, data not sent to sensor id %u", msg_sensor.header.id_node);
-            }
         }
 
         /* Set delay for 50 ms */
@@ -267,8 +275,6 @@ void keyboard_task(void *arg) {
     return;
 }
 
-//bool esp_now_is_peer_exist(const uint8_t *peer_addr);
-//esp_err_t esp_now_get_peer_num(esp_now_peer_num_t *num);
 //esp_err_t esp_wifi_config_espnow_rate(wifi_interface_t ifx, wifi_phy_rate_t rate)
 
 /* Main program */
@@ -367,7 +373,7 @@ void app_main(void) {
 
     xTaskCreate(sensor_task, "sensor_task", 1024 * 2, NULL, 0, NULL);
     xTaskCreate(siren_task, "siren_task", 1024 * 2, NULL, 1, NULL);
-    xTaskCreate(keyboard_task, "keyboard_task", 1024 * 2, NULL, 2, NULL);
+    //xTaskCreate(keyboard_task, "keyboard_task", 1024 * 2, NULL, 2, NULL);
 
     return;
 }
