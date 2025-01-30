@@ -47,28 +47,25 @@ esp_err_t init_wifi_sta() {
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 
-    /* Set WiFi protcol */
-    err = esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
-    if(err != ESP_OK) {
-        ESP_LOGE(TAG_WIFI, "Error, WiFi protcol not setting");
-        return err;
-    }
-
     /* Set channel wifi */
-    err = esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_ABOVE);
+    err = esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
     if (err != ESP_OK) {
         ESP_LOGE(TAG_WIFI, "Error, WiFi channel not setting");
         return err;
     }
 
-    /* Disable power management */
-    esp_wifi_set_ps(WIFI_PS_NONE);
-
-    /* Set max power trasmission */
-    err = esp_wifi_set_max_tx_power(MAX_POWER_TRASMISSION);
+    /* Set wifi */
+    err = esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG_WIFI, "Error to set max power trasmission");
-        return err;
+        ESP_LOGE(TAG_WIFI, "Error, wifi channel not set");
+        return ESP_FAIL;
+    }
+
+    /* Set wifi protocol */
+    err = esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG_WIFI, "Error, wifi protocol not set");
+        return ESP_FAIL;
     }
 
     return err;
