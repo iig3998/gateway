@@ -10,16 +10,6 @@ esp_err_t init_wifi_sta() {
 
     ESP_LOGI(TAG_WIFI, "Start WiFi station");
 
-    /* Initialize stack TCP/IP */
-    err = esp_netif_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG_WIFI, "Error, network interface WiFi not init");
-        return err;
-    }
-
-    /* Start handler event function */
-    esp_event_loop_create_default();
-
     wifi_init_config_t wifi_initiation = WIFI_INIT_CONFIG_DEFAULT();
     err = esp_wifi_init(&wifi_initiation);
     if (err != ESP_OK) {
