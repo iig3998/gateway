@@ -59,7 +59,7 @@ struct node_sirens_list_t *get_sirens_from_list(struct node_sirens_list_t *p, ui
 }
 
 /* Add node to list */
-struct node_sirens_list_t *add_sirens_to_list(struct node_sirens_list_t *p, node_siren_request_t pn) {
+struct node_sirens_list_t *add_sirens_to_list(struct node_sirens_list_t *p, node_siren_msg_t pn) {
 
     p = get_tail_sirens_list(p);
 
@@ -67,7 +67,7 @@ struct node_sirens_list_t *add_sirens_to_list(struct node_sirens_list_t *p, node
     if(!px)
         return NULL;
 
-    memcpy(&(px->node), &pn, sizeof(node_siren_request_t));
+    memcpy(&(px->node), &pn, sizeof(node_siren_msg_t));
     px->next = NULL;
     
     if(!p){
@@ -125,7 +125,7 @@ struct node_sirens_list_t *del_sirens_from_list(struct node_sirens_list_t *p, ui
 }
 
 /* Update siren in to list */
-struct node_sirens_list_t *update_sirens_to_list(struct node_sirens_list_t *p, node_siren_request_t pn) {
+struct node_sirens_list_t *update_sirens_to_list(struct node_sirens_list_t *p, node_siren_msg_t pn) {
 
     p = get_sirens_from_list(p, pn.header.id_node);
     if (!p)
@@ -165,9 +165,9 @@ void print_sirens_list(struct node_sirens_list_t *p) {
 }
 
 /* Build siren request message */
-node_siren_response_t build_request_siren_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[], enum cmd_type cmd) {
+node_siren_msg_t build_request_siren_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[], enum cmd_type cmd) {
 
-    node_siren_response_t req;
+    node_siren_msg_t req;
     memset(&req, 0, sizeof(req));
 
     req.header = build_header_msg(REQUEST, SIREN, id_node, id_msg, mac, cmd);
@@ -177,9 +177,9 @@ node_siren_response_t build_request_siren_msg(uint8_t id_node, uint8_t id_msg, u
 }
 
 /* Build siren ack response message */
-node_siren_response_t build_response_ack_siren_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[]) {
+node_siren_msg_t build_response_ack_siren_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[]) {
 
-    node_siren_response_t resp;
+    node_siren_msg_t resp;
     memset(&resp, 0, sizeof(resp));
 
     resp.header = build_header_msg(RESPONSE, SIREN, id_node, id_msg, mac, ACK);
@@ -189,9 +189,9 @@ node_siren_response_t build_response_ack_siren_msg(uint8_t id_node, uint8_t id_m
 }
 
 /* Build siren nack response message */
-node_siren_response_t build_response_nack_siren_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[]) {
+node_siren_msg_t build_response_nack_siren_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[]) {
 
-    node_siren_response_t resp;
+    node_siren_msg_t resp;
     memset(&resp, 0, sizeof(resp));
 
     resp.header = build_header_msg(RESPONSE, SIREN, id_node, id_msg, mac, NACK);
