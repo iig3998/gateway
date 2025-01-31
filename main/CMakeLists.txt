@@ -8,6 +8,7 @@ idf_component_register(
                     SRCS "components/siren/siren.c"
                     SRCS "components/mqtt/mqtt.c"
                     SRCS "components/ethernet/ethernet.c"
+                    SRCS "components/keyboard/keyboard.c"
                     INCLUDE_DIRS "components/sensor"
                     INCLUDE_DIRS "components/wifi"
                     INCLUDE_DIRS "components/common"
