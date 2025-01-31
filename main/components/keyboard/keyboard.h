@@ -17,13 +17,12 @@ typedef struct {
 	bool state;
 	bool battery_low_detect;
 	uint16_t crc;
-} __attribute__((__packed__)) node_id_keyboard_request_t;
+} __attribute__((__packed__)) node_keyboard_msg_t;
 
-/* Struct response */
-typedef struct {
-	node_id_header_t header;
-	bool ack;
-	uint16_t crc;
-} __attribute__((__packed__)) node_id_keyboard_response_t;
+node_keyboard_msg_t build_request_keryboard_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[]);
+
+node_keyboard_msg_t build_response_ack_keyboard_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[]);
+
+node_keyboard_msg_t build_response_nack_keyboard_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[]);
 
 #endif
