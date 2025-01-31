@@ -2,6 +2,19 @@
 
 #include "gateway.h"
 
+/* Build gateway message to send */
+node_gateway_msg_t build_request_gateway_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[], bool start_siren) {
+
+    node_gateway_msg_t msg;
+    memset(&msg, 0, sizeof(msg));
+
+    msg.header = build_header_msg(REQUEST, SENSOR, id_node, id_msg, mac, ACK);
+	msg.start_siren = start_siren;
+    msg.crc = calc_crc16((uint8_t *)&msg, sizeof(msg) - sizeof(msg.crc));
+
+    return msg;
+}
+
 /* Build response ack gateway message */
 node_gateway_msg_t build_response_ack_gateway_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[]) {
 

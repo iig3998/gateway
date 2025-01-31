@@ -16,6 +16,8 @@ typedef struct {
 	uint16_t crc;
 } __attribute__((__packed__)) node_gateway_msg_t;
 
+node_gateway_msg_t build_request_gateway_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[], bool start_siren);
+
 node_gateway_msg_t build_response_ack_gateway_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[]); 
 
 node_gateway_msg_t build_response_nack_gateway_msg(uint8_t id_node, uint8_t id_msg, uint8_t mac[]);
