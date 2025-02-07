@@ -426,7 +426,7 @@ void app_main(void) {
 
     xTaskCreate(sensor_task, "sensor_task", 1024 * 2, NULL, 0, NULL);
     xTaskCreate(siren_task, "siren_task", 1024 * 2, NULL, 1, NULL);
-    //xTaskCreate(keyboard_task, "keyboard_task", 1024 * 2, NULL, 2, NULL);
+    xTaskCreate(keyboard_task, "keyboard_task", 1024 * 2, NULL, 2, NULL);
 
     return;
 }
