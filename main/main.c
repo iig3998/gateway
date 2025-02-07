@@ -27,7 +27,11 @@
 #include "ethernet.h"
 
 #define TAG_MAIN               "MAIN"
+
+/* IDs device */
 #define ID_GATEWAY             0x78
+#define ID_KEYBOARD            0x87
+
 #define SENSOR_QUEUE_SIZE      20
 #define SIREN_QUEUE_SIZE       5
 #define KEYBOARD_QUEUE_SIZE    5
