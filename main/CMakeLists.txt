@@ -17,5 +17,5 @@ idf_component_register(
                     INCLUDE_DIRS "components/keyboard"
                     INCLUDE_DIRS "components/mqtt"
                     INCLUDE_DIRS "components/ethernet"
-                    REQUIRES esp_wifi nvs_flash esp_timer mqtt esp_eth
+                    REQUIRES esp_wifi nvs_flash esp_timer mqtt esp_eth esp_driver_gpio
                     )
