@@ -15,6 +15,7 @@
 #include "esp_netif.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
+#include "esp_random.h"
 
 #include "common.h"
 #include "wifi.h"
@@ -23,6 +24,7 @@
 #include "siren.h"
 #include "keyboard.h"
 #include "gateway.h"
+#include "ethernet.h"
 
 #define TAG_MAIN               "MAIN"
 #define ID_GATEWAY             0x78
@@ -329,6 +331,22 @@ void app_main(void) {
     }
 
     ESP_LOGI(TAG_MAIN, "MAC address gateway: %X:%X:%X:%X:%X:%X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    /* Read MAC Ethernet address */
+    err = esp_read_mac(mac_eth, ESP_MAC_ETH);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG_MAIN, "Error, MAC address ethernet not read");
+        return;
+    }
+
+    ESP_LOGI(TAG_MAIN, "MAC address Ethernet gateway: %X:%X:%X:%X:%X:%X", mac_eth[0], mac_eth[1], mac_eth[2], mac_eth[3], mac_eth[4], mac_eth[5]);
+
+    /* Init eth */
+    err = init_eth();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG_MAIN, "Error, Ethernet not setting");
+        return;
+    }
 
     err = init_wifi_sta();
     if(err != ESP_OK) {
