@@ -44,9 +44,7 @@
 
 EventGroupHandle_t xEventGroupAlarm;
 
-static bool active_alarm = false;
 
-static uint8_t mac[6];
 static const uint8_t dest_mac[6];
 
 static QueueHandle_t node_sensor_queue;
