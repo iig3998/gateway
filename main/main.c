@@ -323,14 +323,23 @@ void app_main(void) {
         nvs_flash_init();
     }
 
-    /* Read MAC address */
-    err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    /* Initialize stack TCP/IP */
+    err = esp_netif_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG_MAIN, "Error, MAC address not read");
+        ESP_LOGE(TAG_MAIN, "Error, network interface WiFi not init");
         return;
     }
 
-    ESP_LOGI(TAG_MAIN, "MAC address gateway: %X:%X:%X:%X:%X:%X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    esp_event_loop_create_default();
+
+    /* Read MAC WiFi address */
+    err = esp_read_mac(mac_wifi, ESP_MAC_WIFI_STA);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG_MAIN, "Error, MAC address WiFi not read");
+        return;
+    }
+
+    ESP_LOGI(TAG_MAIN, "MAC address WiFi gateway: %X:%X:%X:%X:%X:%X", mac_wifi[0], mac_wifi[1], mac_wifi[2], mac_wifi[3], mac_wifi[4], mac_wifi[5]);
 
     /* Read MAC Ethernet address */
     err = esp_read_mac(mac_eth, ESP_MAC_ETH);
@@ -348,6 +357,7 @@ void app_main(void) {
         return;
     }
 
+    /* Init wifi station */
     err = init_wifi_sta();
     if(err != ESP_OK) {
         ESP_LOGE(TAG_MAIN, "Error, Wifi not setting");
