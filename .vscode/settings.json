@@ -11,6 +11,8 @@
         "ranges": "c",
         "alarm.h": "c",
         "gateway.h": "c",
-        "siren.h": "c"
+        "siren.h": "c",
+        "mqtt_client.h": "c",
+        "keyboard.h": "c"
     }
 }
