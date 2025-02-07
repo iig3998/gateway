@@ -6,10 +6,12 @@
 #include "esp_netif.h"
 #include "esp_eth.h"
 
+#include "driver/gpio.h"
 #define ETH_MDC_GPIO     23
 #define ETH_MDIO_GPIO    18
 #define ETH_PHY_RST_GPIO 5
 #define ETH_PHY_ADDR     1
+#define ETH_POWER_PIN    16
 
 #define TAG_ETHERNET "ETHERNET"
 
@@ -53,6 +55,10 @@ void init_eth() {
         return;
     }
 
+    /* Power on device */
+    gpio_set_direction(ETH_POWER_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(ETH_POWER_PIN, 1);
+    vTaskDelay(pdMS_TO_TICKS(100));
     esp_event_loop_create_default();
 
     esp_netif_config_t cfg = ESP_NETIF_DEFAULT_ETH();
