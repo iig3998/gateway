@@ -387,18 +387,17 @@ void app_main(void) {
         return;
     }
 
-    node_siren_queue = xQueueCreate(SIREN_QUEUE_SIZE, sizeof(node_siren_request_t));
+    node_siren_queue = xQueueCreate(SIREN_QUEUE_SIZE, sizeof(node_siren_msg_t));
     if(!node_siren_queue) {
         ESP_LOGE(TAG_MAIN, "Error, siren queue not allocated");
         return;
     }
 
-    /*
-    node_keyboard_queue = xQueueCreate(KEYBOARD_QUEUE_SIZE, sizeof(node_id_keyboard));
+    node_keyboard_queue = xQueueCreate(KEYBOARD_QUEUE_SIZE, sizeof(node_keyboard_msg_t));
     if(!node_keyboard_queue) {
         ESP_LOGE(TAG_MAIN, "Error, keyboard queue not allocated");
         return;
-    }*/
+    }
 
     /* Register send callback function */
     err = esp_now_register_send_cb(espnow_send_cb);
