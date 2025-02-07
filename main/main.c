@@ -103,6 +103,30 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
     return;
 }
 
+/* Sent message */
+static void send_message(uint8_t *mac, void *msg) {
+
+    esp_err_t err = ESP_FAIL;
+    uint8_t num_retrasmission_time = NUM_RETRASMISSION_TIME;
+
+    xEventGroupSetBits(xEventGroupAlarm, DATA_SENT_STATUS);
+
+    do {
+        err = esp_now_send(mac, (uint8_t *)&msg, sizeof(msg));
+        if(err != ESP_OK) {
+            ESP_LOGE(TAG_MAIN, "Error, data not send");
+        }
+        num_retrasmission_time --;
+    }
+    while(xEventGroupWaitBits(xEventGroupAlarm, DATA_SENT_STATUS, pdTRUE, pdFALSE, portMAX_DELAY) && num_retrasmission_time > 0);
+
+    if(!num_retrasmission_time) {
+        ESP_LOGW(TAG_MAIN, "Warning, trasmission error");
+    }
+
+    return;
+}
+
 /* Run sensor task */
 void sensor_task(void *arg) {
 
