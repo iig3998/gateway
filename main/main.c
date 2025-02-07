@@ -35,8 +35,12 @@
 #define NUM_RETRASMISSION_TIME 3
 
 /* Define events */
-#define DATA_SENT             (1 << 0)
-#define DATA_RECEIVED         (1 << 1)
+#define DATA_SENT_STATUS    (1 << 0) /* 1 - Device is busy for send | 0 - Device is free for send */
+#define SENT_BUSY           (1 << 1) /* 1 - Sent busy | 0 - Sent free */
+#define DATA_RECEIVE_STATUS (1 << 2) /* 1 - Device is busy for receive | 0 - Device is free for receive */
+#define RECEIVE_BUSY        (1 << 3) /* 1 - Receive busy | 0 - Receive free */
+#define ACTIVE_ALARM        (1 << 4) /* 1 - Alarm active | 0 - Deactive     */
+#define RUN_ALARM           (1 << 5) /* 1 - Start siren  | 0 - Stop siren   */
 
 EventGroupHandle_t xEventGroupAlarm;
 
