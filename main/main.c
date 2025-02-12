@@ -235,6 +235,8 @@ void sensor_task(void *arg) {
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 
+    vTaskDelete(NULL);
+
     return;
 }
 
@@ -299,6 +301,8 @@ void siren_task(void *arg) {
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 
+    vTaskDelete(NULL);
+
     return;
 }
 
@@ -309,6 +313,8 @@ void keyboard_task(void *arg) {
 
     while(1) {
     }
+
+    vTaskDelete(NULL);
 
     return;
 }
