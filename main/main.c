@@ -51,6 +51,10 @@ EventGroupHandle_t xEventGroupAlarm;
 
 static const uint8_t dest_mac[6];
 
+static TaskHandle_t xHandleTask_sensor;
+static TaskHandle_t xHandleTask_siren;
+static TaskHandle_t xHandleTask_keyboard;
+
 static QueueHandle_t node_sensor_queue;
 static QueueHandle_t node_siren_queue;
 static QueueHandle_t node_keyboard_queue;
@@ -428,9 +432,23 @@ void app_main(void) {
         return;
     }
 
-    xTaskCreate(sensor_task, "sensor_task", 1024 * 2, NULL, 0, NULL);
-    xTaskCreate(siren_task, "siren_task", 1024 * 2, NULL, 1, NULL);
-    xTaskCreate(keyboard_task, "keyboard_task", 1024 * 2, NULL, 2, NULL);
+    /* Start sensor task */
+    if(xTaskCreate(sensor_task, "sensor_task", 1024 * 2, NULL, 0, &xHandleTask_sensor) != pdPASS) {
+        ESP_LOGE(TAG_MAIN, "Error, sensor task not started");
+        return;
+    }
+
+    /* Start siren task */
+    if(xTaskCreate(siren_task, "siren_task", 1024 * 2, NULL, 1, &xHandleTask_siren) != pdPASS) {
+        ESP_LOGE(TAG_MAIN, "Error, siren task not started");
+        return;
+    }
+
+    /* Start keyboard task */
+    if(xTaskCreate(keyboard_task, "keyboard_task", 1024 * 2, NULL, 2, &xHandleTask_keyboard) != pdPASS) {
+        ESP_LOGE(TAG_MAIN, "Error, keyboard task not started");
+        return;
+    }
 
     return;
 }
