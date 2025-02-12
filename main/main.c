@@ -225,6 +225,8 @@ void sensor_task(void *arg) {
 
                     break;
                 }
+
+                print_sensors_list(node_sesnors_list);
             }
 
         }
