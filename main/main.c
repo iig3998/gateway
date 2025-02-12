@@ -90,7 +90,7 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
 
     switch (n_type) {
         case SENSOR:
-            ESP_LOGI(TAG_MAIN, "Sensor node type");
+            ESP_LOGI(TAG_MAIN, "Receive message from sensor");
             node_sensor_msg_t msg_sensor;
             memcpy(&msg_sensor, data, sizeof(msg_sensor));
             if(xQueueSend(node_sensor_queue, &msg_sensor, portMAX_DELAY) != pdTRUE) {
@@ -99,10 +99,10 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
         break;
 
         case SIREN:
-            ESP_LOGI(TAG_MAIN, "Siren node type");
-            node_siren_response_t node_siren;
-            memcpy(&node_siren, data, sizeof(node_siren));
-            if(xQueueSend(node_siren_queue, &node_siren, portMAX_DELAY) != pdTRUE) {
+            ESP_LOGI(TAG_MAIN, "Recive message from siren");
+            node_siren_msg_t msg_siren;
+            memcpy(&msg_siren, data, sizeof(msg_siren));
+            if(xQueueSend(node_siren_queue, &msg_siren, portMAX_DELAY) != pdTRUE) {
                 ESP_LOGI(TAG_MAIN, "Data node siren insert correctly to queue");
             }
         break;
