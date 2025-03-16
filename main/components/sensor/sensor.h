@@ -5,13 +5,14 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <time.h>
 
 #include "common.h"
 #include "header.h"
 
 #define MAC_SIZE 6
 
-/* Struct node sensor */
+/* Struct node message sensor */
 typedef struct {
 	node_id_header_t header;
 	bool state;
@@ -25,9 +26,11 @@ typedef struct {
 	uint8_t mac[MAC_SIZE];
 	bool state;
 	bool battery_low_detect;
+	bool is_alive;
+	time_t time;
 } __attribute__((__packed__)) node_sensor_t;
 
-/* Struct node alarm and siren list */
+/* Struct node sensor list */
 struct node_sensors_list_t {
 	node_sensor_t node;
 	struct node_sensors_list_t *next;

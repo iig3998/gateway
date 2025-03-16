@@ -64,14 +64,17 @@ struct node_sensors_list_t *add_sensors_to_list(struct node_sensors_list_t *p, n
     p = get_tail_sensors_list(p);
 
     struct node_sensors_list_t *px = (struct node_sensors_list_t *)calloc(1, sizeof(struct node_sensors_list_t));
-    if(!px)
+    if(!px) {
         return NULL;
+    }
 
     px->node.id_node = pn.header.id_node;
     memcpy(px->node.mac, pn.header.mac, MAC_SIZE);
 
     px->node.state = pn.state;
     px->node.battery_low_detect = pn.battery_low_detect;
+    p->node.is_alive = true;
+    px->node.time = time(NULL);
 
     px->next = NULL;
 
@@ -136,7 +139,13 @@ struct node_sensors_list_t *update_sensors_to_list(struct node_sensors_list_t *p
     if (!p)
         return p;
 
-    memcpy(p, &pn, sizeof(pn));
+    p->node.id_node = pn.header.id_node;
+    memcpy(p->node.mac, pn.header.mac, MAC_SIZE);
+
+    p->node.state = pn.state;
+    p->node.battery_low_detect = pn.battery_low_detect;
+    p->node.is_alive = true;
+    p->node.time = time(NULL);
 
     return p;
 }
@@ -150,9 +159,9 @@ uint8_t get_num_sensors_from_list() {
 /* Print node id list */
 void print_sensors_list(struct node_sensors_list_t *p) {
 
-    ESP_LOGI(TAG_SENSOR, "|-----------------------------------------------------|");
-    ESP_LOGI(TAG_SENSOR, "|   ID   |   State reed switch   |   Status battery   |");
-    ESP_LOGI(TAG_SENSOR, "|-----------------------------------------------------|");
+    ESP_LOGI(TAG_SENSOR, "|------------------------------------------------------------------------------------------|");
+    ESP_LOGI(TAG_SENSOR, "|   ID   |   State reed switch   |   Status battery   |   Is Alive  |   Time last update   |");
+    ESP_LOGI(TAG_SENSOR, "|------------------------------------------------------------------------------------------|");
 
     p = get_head_sensors_list(p);
     if(!p) {
@@ -161,10 +170,10 @@ void print_sensors_list(struct node_sensors_list_t *p) {
     }
 
     for(; p->next != NULL; p = p->next){
-        ESP_LOGI(TAG_SENSOR, "| %6u | %16u | %16u |", p->node.id_node, p->node.state, p->node.battery_low_detect);
+        ESP_LOGI(TAG_SENSOR, "| %6u | %16u | %16u | %16d | %16lu |", p->node.id_node, p->node.state, p->node.battery_low_detect, p->node.is_alive, (unsigned long)p->node.time);
     }
 
-    ESP_LOGI(TAG_SENSOR, "| %6u | %16u | %16u |", p->node.id_node, p->node.state, p->node.battery_low_detect);
+    ESP_LOGI(TAG_SENSOR, "| %6u | %16u | %16u | %16d | %16lu |", p->node.id_node, p->node.state, p->node.battery_low_detect, p->node.is_alive, (unsigned long)p->node.time);
 
     return;
 }
