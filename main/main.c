@@ -24,6 +24,8 @@
 #include "ethernet.h"
 
 #define TAG_MAIN               "MAIN"
+#define TAG_MAIN_SEND          "MAIN_SEND"
+#define TAG_MAIN_RECEIVE       "MAIN_RECEIVE"
 
 /* IDs device */
 #define ID_GATEWAY             0x78
