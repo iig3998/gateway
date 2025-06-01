@@ -17,7 +17,7 @@ esp_err_t init_wifi_sta() {
     }
 
     /* Set storage mode */
-    err = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
+    err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
     if (err != ESP_OK) {
         ESP_LOGE(TAG_WIFI, "Error, set mode store not setting");
         return err;
