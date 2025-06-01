@@ -21,11 +21,6 @@
 
 #include "common.h"
 #include "wifi.h"
-
-#include "sensor.h"
-#include "siren.h"
-#include "keyboard.h"
-#include "gateway.h"
 #include "ethernet.h"
 
 #define TAG_MAIN               "MAIN"
