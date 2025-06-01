@@ -29,19 +29,11 @@
 
 /* IDs device */
 #define ID_GATEWAY             0x78
-#define ID_KEYBOARD            0x87
 
-#define SENSOR_QUEUE_SIZE      20
-#define SIREN_QUEUE_SIZE       5
-#define KEYBOARD_QUEUE_SIZE    5
 #define ESPNOW_WIFI_CHANNEL    7
 #define NUM_RETRASMISSION_TIME 3
 
 /* Define events */
-#define DATA_SENT_STATUS      (1 << 0) /* 1 - Device is busy for send | 0 - Device is free for send */
-#define DATA_RECEIVE_STATUS   (1 << 1) /* 1 - Device is busy for receive | 0 - Device is free for receive */
-#define ACTIVE_DEACTIVE_ALARM (1 << 2) /* 1 - Alarm active | 0 - Deactive */
-#define START_STOP_ALARM      (1 << 3) /* 1 - Start siren  | 0 - Stop siren */
 
 static uint8_t mac_wifi[MAC_SIZE];
 static uint8_t mac_eth[MAC_SIZE];
