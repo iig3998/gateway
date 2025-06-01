@@ -6,7 +6,7 @@
 #include "freertos/queue.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
-
+#include "freertos/semphr.h"
 
 #include "esp_log.h"
 #include "esp_err.h"
