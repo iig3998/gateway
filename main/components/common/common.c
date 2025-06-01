@@ -1,6 +1,6 @@
 #include "common.h"
 
-uint16_t calc_crc16(uint8_t *data, uint32_t length) {
+uint16_t calc_crc16_msg(uint8_t *data, uint32_t length) {
 
     uint16_t crc = 0xFFFF;
 
