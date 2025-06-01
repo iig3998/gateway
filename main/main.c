@@ -40,6 +40,9 @@ static uint8_t mac_eth[MAC_SIZE];
 
 static const uint8_t dest_mac[6];
 
+static QueueHandle_t receive_queue;
+static QueueHandle_t send_queue;
+
 static TaskHandle_t xHandleTask_sensor = NULL;
 static TaskHandle_t xHandleTask_siren = NULL;
 static TaskHandle_t xHandleTask_keyboard = NULL;
