@@ -222,30 +222,9 @@ node_msg_t build_node_msg(cmd_type cmd, uint8_t id_node, node_type node, uint8_t
                 ESP_LOGI(TAG_NODE, "Battery low detect: %u", msg.payload[1]);
             break;
         }
-    if(payload) {
-        memcpy(msg.payload, payload, sizeof(status_node));
-        ESP_LOGI(TAG_NODE, "State: %u", msg.payload[0]);
-        ESP_LOGI(TAG_NODE, "Battery low detect: %u", msg.payload[1]);
-
-        ESP_LOGI(TAG_NODE, "status_node size: %u", sizeof(status_node));
-        ESP_LOGI(TAG_NODE, "a: %u", msg.payload[2]);
-        ESP_LOGI(TAG_NODE, "b: %u", msg.payload[3]);
-        ESP_LOGI(TAG_NODE, "c: %u", msg.payload[4]);
-        ESP_LOGI(TAG_NODE, "d: %u", msg.payload[5]);
-        ESP_LOGI(TAG_NODE, "e: %u", msg.payload[6]);
-        ESP_LOGI(TAG_NODE, "f: %u", msg.payload[7]);
     }
 
     msg.crc = calc_crc16_msg((uint8_t *)&msg, sizeof(msg) - sizeof(msg.crc));
-
-    ESP_LOGI(TAG_NODE, "Cmd: %u", msg.header.cmd);
-    ESP_LOGI(TAG_NODE, "ID node: %u", msg.header.id_node);
-    ESP_LOGI(TAG_NODE, "ID msg: %u", msg.header.id_msg);
-    ESP_LOGI(TAG_NODE, "Name: %s", msg.name_node);
-    ESP_LOGI(TAG_NODE, "Mac: %02X:%02X:%02X:%02X:%02X:%02X",
-        msg.header.mac[0], msg.header.mac[1], msg.header.mac[2],
-        msg.header.mac[3], msg.header.mac[4], msg.header.mac[5]);
-    ESP_LOGI(TAG_NODE, "CRC16: %u", msg.crc);
 
     return msg;
 }
