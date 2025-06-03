@@ -35,6 +35,7 @@ static struct node_list_t *get_head_node_list(struct node_list_t *p) {
     return p;
 }
 
+/* Return first node form list */
 struct node_list_t *get_first_node_from_list(struct node_list_t *p) {
 
     return get_head_node_list(p);
