@@ -194,7 +194,7 @@ node_msg_t build_node_msg(cmd_type cmd, uint8_t id_node, node_type node, uint8_t
 
     node_msg_t msg;
 
-    memset(&msg, 0, sizeof(msg));
+    memset(&msg, 0, sizeof(node_msg_t));
 
     msg.header.cmd = cmd;
     msg.header.id_node = id_node;
