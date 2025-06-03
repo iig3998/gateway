@@ -39,6 +39,7 @@
 
 #define CYCLE_TIME_S           60
 #define SLOT_DURATION_S        10
+#define MAX_NUMBER_NODE        10
 
 /* Define events */
 #define DATA_SENT_STATUS       (1 << 0) /* 1 - Device is busy for send | 0 - Device is free for send */
