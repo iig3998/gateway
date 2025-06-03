@@ -21,6 +21,8 @@
 
 #include "common.h"
 #include "wifi.h"
+#include "node.h"
+#include "mqtt.h"
 #include "ethernet.h"
 
 #define TAG_MAIN               "MAIN"
