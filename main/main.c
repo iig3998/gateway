@@ -50,21 +50,13 @@
 static uint8_t mac_wifi[MAC_SIZE];
 static uint8_t mac_eth[MAC_SIZE];
 
-static const uint8_t dest_mac[6];
 
 static QueueHandle_t receive_queue;
 static QueueHandle_t send_queue;
 
-static TaskHandle_t xHandleTask_sensor = NULL;
-static TaskHandle_t xHandleTask_siren = NULL;
-static TaskHandle_t xHandleTask_keyboard = NULL;
-static TaskHandle_t xHandleTask_monitoring = NULL;
 
-static QueueHandle_t node_sensor_queue;
-static QueueHandle_t node_siren_queue;
-static QueueHandle_t node_keyboard_queue;
 
-EventGroupHandle_t xEventGroupAlarm;
+static time_t t;
 
 /* Send callback function */
 static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status) {
@@ -87,8 +79,6 @@ static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status
 
 /* Receive callback function */
 static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
-
-    enum node_type n_type = data[0];
 
     if (!recv_info->src_addr || !data || len <= 0) {
         ESP_LOGE(TAG_MAIN, "Receive callback args error. Discard messgae");
