@@ -24,6 +24,7 @@
 #include "node.h"
 #include "mqtt.h"
 #include "ethernet.h"
+#include "conf.h"
 
 #define TAG_MAIN               "MAIN"
 #define TAG_MAIN_SEND          "MAIN_SEND"
