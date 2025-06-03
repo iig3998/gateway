@@ -4,8 +4,6 @@
 
 #define TAG_MQTT "MQTT"
 
-static esp_mqtt_client_handle_t mqtt_client;
-
 /* Mqtt event handler function */
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
 
@@ -39,14 +37,16 @@ esp_err_t init_mqtt() {
 
     esp_err_t err = ESP_FAIL;
 
+    ESP_LOGI(TAG_MQTT, "Init mqtt");
+
     esp_mqtt_client_config_t mqtt_cfg = {
         .session.protocol_ver = MQTT_PROTOCOL_V_3_1_1,
-        .broker.address.uri = "da80e3ba49314d569e796196ef66537c.s2.eu.hivemq.cloud",
-        .credentials.username = "domotichouse",
-        .credentials.authentication.password = "D0m0t1cH0use",
+        .broker.address.uri = "aaa",
+        .credentials.username = "aaa",
+        .credentials.authentication.password = "aaa",
     };
 
-    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+    esp_mqtt_client_handle_t mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
 
     /* Register mqtt event */
     err = esp_mqtt_client_register_event(mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
