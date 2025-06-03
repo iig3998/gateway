@@ -37,18 +37,11 @@ esp_err_t init_wifi_sta() {
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 
-    /* Set channel wifi */
+    /* Set wifi channel */
     err = esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
     if (err != ESP_OK) {
         ESP_LOGE(TAG_WIFI, "Error, WiFi channel not setting");
         return err;
-    }
-
-    /* Set wifi */
-    err = esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG_WIFI, "Error, wifi channel not set");
-        return ESP_FAIL;
     }
 
     /* Set wifi protocol */
