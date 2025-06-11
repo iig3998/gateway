@@ -48,7 +48,6 @@
 #define ACTIVE_DEACTIVE_ALARM  (1 << 2)
 
 static uint8_t mac_wifi[MAC_SIZE];
-static uint8_t mac_eth[MAC_SIZE];
 
 
 static QueueHandle_t receive_queue;
