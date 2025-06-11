@@ -66,11 +66,11 @@ static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status
     }
 
     if(status == ESP_NOW_SEND_SUCCESS) {
-        ESP_LOGI(TAG_MAIN, "Message sent correctly");
-        xEventGroupSetBits(xEventGroupAlarm, DATA_SENT_STATUS);
+        ESP_LOGD(TAG_MAIN, "Message sent correctly");
+        xEventGroupSetBits(xEventGroupAlarm, DATA_SENT_SUCCESS);
     } else if (status == ESP_NOW_SEND_FAIL){
         ESP_LOGE(TAG_MAIN, "Message not sent correctly");
-        xEventGroupClearBits(xEventGroupAlarm, DATA_SENT_STATUS);
+        xEventGroupClearBits(xEventGroupAlarm, DATA_SENT_FAILED);
     }
 
     return;
@@ -80,7 +80,7 @@ static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status
 static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
 
     if (!recv_info->src_addr || !data || len <= 0) {
-        ESP_LOGE(TAG_MAIN, "Receive callback args error. Discard messgae");
+        ESP_LOGE(TAG_MAIN, "Receive callback args error. Discard message");
         return;
     }
 
