@@ -18,6 +18,7 @@
 #include "esp_mac.h"
 #include "esp_timer.h"
 #include "esp_random.h"
+#include "esp_sntp.h"
 
 #include "common.h"
 #include "wifi.h"
