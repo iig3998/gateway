@@ -55,7 +55,6 @@ static QueueHandle_t send_queue;
 
 
 
-static time_t t;
 
 /* Send callback function */
 static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status) {
