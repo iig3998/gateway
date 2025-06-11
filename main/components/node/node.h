@@ -48,13 +48,13 @@ typedef struct {
 	uint8_t id_msg;
 	uint8_t mac[MAC_SIZE];
 	cmd_type cmd;
-} __attribute__((__packed__)) node_header_t;
+} __attribute__((__packed__)) node_id_header;
 
 /* Struct node message */
 typedef struct {
-	node_header_t header;
+	node_id_header header;
 	char name_node[NAME_LEN];
-	uint8_t payload[PAYLOAD_LEN];
+	int8_t payload[PAYLOAD_LEN];
 	uint16_t crc;
 } __attribute__((__packed__)) node_msg_t;
 
