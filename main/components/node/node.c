@@ -213,13 +213,12 @@ node_msg_t build_node_msg(cmd_type cmd, uint8_t id_node, node_type node, uint8_t
     if (payload) {
         switch(cmd) {
             case ADD:
+                ESP_LOGI(TAG_NODE, "Time: %lld", *((time_t *)payload));
                 memcpy(msg.payload, payload, sizeof(time_t));
             break;
             case UPDATE:
             case SYNC:
                 memcpy(msg.payload, payload, sizeof(status_node));
-                ESP_LOGI(TAG_NODE, "State: %u", msg.payload[0]);
-                ESP_LOGI(TAG_NODE, "Battery low detect: %u", msg.payload[1]);
             break;
         }
     }
