@@ -38,6 +38,13 @@
 #define CYCLE_TIME_S           60
 #define SLOT_DURATION_S        10
 #define MAX_NUMBER_NODE        10
+#define NUMBER_ATTEMPTS        3
+#define RETRASMISSION_TIME_MS  50
+#define DATA_SENT_SUCCESS      (1 << 0)
+#define DATA_SENT_FAILED       (1 << 1)
+#define DATA_RECEIVED_SUCCESS  (1 << 2)
+#define DATA_RECEIVED_FAILED   (1 << 3)
+#define ACTIVE_DEACTIVE_ALARM  (1 << 2)
 
 static uint8_t mac_wifi[MAC_SIZE];
 static uint8_t mac_eth[MAC_SIZE];
