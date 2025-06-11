@@ -47,7 +47,7 @@
 #define DATA_RECEIVED_FAILED   (1 << 3)
 #define ACTIVE_DEACTIVE_ALARM  (1 << 2)
 
-static uint8_t mac_wifi[MAC_SIZE];
+static uint8_t mac_wifi[MAC_SIZE] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 
 static QueueHandle_t receive_queue;
