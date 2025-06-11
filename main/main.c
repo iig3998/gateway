@@ -49,13 +49,86 @@
 
 static uint8_t mac_wifi[MAC_SIZE] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
+static struct node_list_t *node_list = NULL;
 
 static QueueHandle_t receive_queue;
 static QueueHandle_t send_queue;
+static SemaphoreHandle_t pending_msg_mutex;
 static EventGroupHandle_t xEventGroupAlarm;
 
+static time_t target_time;
 
+/* Define pending message struct */
+struct pending_msg {
+    uint8_t id_device;
+    uint8_t cmd_type;
+    uint8_t id_msg;
+    time_t time;
+    struct pending_msg *next;
+} __attribute__((__packed__));
 
+static struct pending_msg *p_msg_head = NULL;
+static struct pending_msg *p_msg_tail = NULL;
+
+/* Add pending message */
+static void add_pending_msg(uint8_t id_device, uint8_t cmd_type, uint8_t id_msg) {
+
+    struct pending_msg *p = calloc(1, sizeof(struct pending_msg));
+    if (!p)
+        return;
+
+    p->id_device = id_device;
+    p->cmd_type = cmd_type;
+    p->id_msg = id_msg;
+    p->time = time(NULL);
+    p->next = NULL;
+
+    if (xSemaphoreTake(pending_msg_mutex, portMAX_DELAY)) {
+        if (!p_msg_tail) {
+            p_msg_head = p_msg_tail = p;
+        } else {
+            p_msg_tail->next = p;
+            p_msg_tail = p;
+        }
+        xSemaphoreGive(pending_msg_mutex);
+    }
+
+    return;
+}
+
+/* Remove peding message from list */
+static void remove_pending_msg(uint8_t id_device, uint8_t cmd_type, uint8_t id_msg) {
+
+    if (xSemaphoreTake(pending_msg_mutex, portMAX_DELAY)) {
+        struct pending_msg *current = p_msg_head;
+        struct pending_msg *prev = NULL;
+
+        while (current) {
+            if (current->id_device == id_device && current->cmd_type == cmd_type && current->id_msg == id_msg) {
+
+                if (!prev) {
+                    p_msg_head = current->next;
+                    if (p_msg_tail == current)
+                        p_msg_tail = NULL;
+                } else {
+                    prev->next = current->next;
+                    if (p_msg_tail == current)
+                        p_msg_tail = prev;
+                }
+
+                free(current);
+                break;
+            }
+
+            prev = current;
+            current = current->next;
+        }
+
+        xSemaphoreGive(pending_msg_mutex);
+    }
+
+    return;
+}
 
 /* Send callback function */
 static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status) {
@@ -84,346 +157,310 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
         return;
     }
 
-    switch (n_type) {
-        case SENSOR:
-            ESP_LOGI(TAG_MAIN, "Receive message from sensor");
-            if(xQueueSend(node_sensor_queue, &data, portMAX_DELAY) != pdTRUE) {
-                ESP_LOGI(TAG_MAIN, "Data node sensor insert correctly to queue");
-            }
-        break;
+    ESP_LOGD(TAG_MAIN, "Receive message from sensor or siren");
 
-        case SIREN:
-            ESP_LOGI(TAG_MAIN, "Recive message from siren");
-            if(xQueueSend(node_siren_queue, &data, portMAX_DELAY) != pdTRUE) {
-                ESP_LOGI(TAG_MAIN, "Data node siren insert correctly to queue");
-            }
-        break;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-        default:
-            ESP_LOGW(TAG_MAIN, "Warning, node not identified");
-        break;
+    if (xQueueSendFromISR(receive_queue, data, &xHigherPriorityTaskWoken) != pdTRUE) {
+        ESP_LOGW(TAG_MAIN, "Warning, queue is full, discard message");
+    }
+
+    if (xHigherPriorityTaskWoken == pdTRUE) {
+        portYIELD_FROM_ISR();
     }
 
     return;
 }
 
-/* Sent message */
-static void send_message(uint8_t *mac, void *msg) {
+/* Send message by espnow protocol */
+static bool send_message(uint8_t dst_mac[], node_msg_t msg) {
 
     esp_err_t err = ESP_FAIL;
-    uint8_t num_retrasmission_time = NUM_RETRASMISSION_TIME;
+    uint8_t num_tentative = NUMBER_ATTEMPTS;
+    EventBits_t uxBits;
 
-    xEventGroupClearBits(xEventGroupAlarm, DATA_SENT_STATUS);
-
+    xEventGroupClearBits(xEventGroupAlarm, DATA_SENT_SUCCESS | DATA_SENT_FAILED);
     do {
-        err = esp_now_send(mac, (uint8_t *)&msg, sizeof(*msg));
-        if(err != ESP_OK) {
-            ESP_LOGE(TAG_MAIN, "Error, data not send");
+        /* Send packet */
+        err = esp_now_send(dst_mac, (uint8_t *)&msg, sizeof(msg));
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG_MAIN, "Error send: %s", esp_err_to_name(err));
+            num_tentative = 0;
         }
-        num_retrasmission_time --;
+        /* Wait until the data is sent */
+        uxBits = xEventGroupWaitBits(xEventGroupAlarm, DATA_SENT_SUCCESS | DATA_SENT_FAILED, pdTRUE, pdFALSE, portMAX_DELAY);
+        num_tentative--;
+        vTaskDelay(pdMS_TO_TICKS(RETRASMISSION_TIME_MS));
     }
-    while(!(xEventGroupWaitBits(xEventGroupAlarm, DATA_SENT_STATUS, pdTRUE, pdFALSE, pdMS_TO_TICKS(10)) && DATA_SENT_STATUS) && num_retrasmission_time > 0);
+    while((uxBits & DATA_SENT_FAILED) && num_tentative > 0);
+
+    if(!num_tentative)
+        return false;
+
+    return true;
+}
+
+/* Time to byte */
+static void time_to_bytes(time_t t, uint8_t *p) {
+
+    memcpy(p, &t, sizeof(time_t));
 
     return;
 }
 
-/* Run sensor task */
-void sensor_task(void *arg) {
+/* Byte to time */
+static time_t bytes_to_time(uint8_t *p) {
 
-    ESP_LOGI(TAG_MAIN, "Start alarm task");
+    time_t t;
 
-    esp_err_t err = ESP_FAIL;
-    uint16_t crc = 0;
-    esp_now_peer_num_t num_peer;
-    esp_now_peer_info_t peer;
-    node_sensor_msg_t msg_sensor;
-    struct node_sensors_list_t *node_sensors_list = NULL;
+    memcpy(&t, p, sizeof(time_t));
 
-    memset(&msg_sensor, 0, sizeof(msg_sensor));
+    return t;
+}
 
-    ESP_LOGI(TAG_MAIN, "Stack rimanente: %d byte\n", uxTaskGetStackHighWaterMark(NULL));
-    while(xHandleTask_sensor) {
+/* Print hours */
+static void print_hour(time_t t) {
 
-        if (xQueueReceive(node_sensor_queue, &msg_sensor, portMAX_DELAY) == pdTRUE) {
+    struct tm *local_time = localtime(&t);
 
-            ESP_LOGI(TAG_MAIN, "Receive message from sensor id: %u", msg_sensor.header.id_node);
+    if (!local_time) {
+        ESP_LOGE(TAG_MAIN, "Error, hour not converted");
+        return;
+    }
 
-            crc = calc_crc16((uint8_t *)&msg_sensor, sizeof(msg_sensor) - sizeof(crc));
-            ESP_LOGI(TAG_MAIN, "CRC16 calculated: %u", crc);
-            if (crc != msg_sensor.crc) {
-                ESP_LOGI(TAG_MAIN, "Warning, crc16 correct discard message");
-            } else {
-                ESP_LOGI(TAG_MAIN, "Success, crc16 correct");
-                switch(msg_sensor.header.msg) {
+    ESP_LOGI(TAG_MAIN, "Hour: %02d:%02d:%02d", local_time->tm_hour, local_time->tm_min, local_time->tm_sec);
 
-                    case REQUEST:
-                        switch (msg_sensor.header.cmd) {
+    return;
+}
 
-                            case ADD:
-                                if(!get_sensors_from_list(node_sensors_list, msg_sensor.header.id_node)) {
-                                    ESP_LOGI(TAG_MAIN, "Add new sensor device id: %u", msg_sensor.header.id_node);
+/* Print message */
+static void print_msg(node_msg_t node_msg) {
 
-                                    /* Add new peer to list */
-                                    memset(&peer, 0, sizeof(esp_now_peer_info_t));
-                                    peer.channel = ESPNOW_WIFI_CHANNEL;
-                                    peer.ifidx = WIFI_IF_STA;
-                                    peer.encrypt = false;
+    ESP_LOGI(TAG_MAIN, "Cmd: %u", node_msg.header.cmd);
+    ESP_LOGI(TAG_MAIN, "Node type: %u", node_msg.header.node);
+    ESP_LOGI(TAG_MAIN, "Mac: %02X:%02X:%02X:%02X:%02X:%02X", node_msg.header.mac[0], node_msg.header.mac[1], node_msg.header.mac[2], node_msg.header.mac[3], node_msg.header.mac[4], node_msg.header.mac[5]);
+    ESP_LOGI(TAG_MAIN, "ID node: %u", node_msg.header.id_node);
+    ESP_LOGI(TAG_MAIN, "ID msg: %u", node_msg.header.id_msg);
+    ESP_LOGI(TAG_MAIN, "Name: %s", node_msg.name_node);
 
-                                    err = esp_now_add_peer(&peer);
-                                    if(err != ESP_OK) {
-                                        ESP_LOGE(TAG_MAIN, "Error, peer sensor not added");
-                                    } else {
-                                        /* Add sensor to list */
-                                        node_sensors_list = add_sensors_to_list(node_sensors_list, msg_sensor);
-                                        err = esp_now_get_peer_num(&num_peer);
-                                        if(err == ESP_OK){
-                                            ESP_LOGI(TAG_MAIN, "There are %d nodes registered", num_peer.total_num);
-                                        } else {
-                                            ESP_LOGI(TAG_MAIN, "Number nodes not available");
-                                        }
+    switch(node_msg.header.cmd) {
+        case ADD:
+            for(uint8_t i = 0; i < 8; i++) {
+                ESP_LOGI(TAG_MAIN, "Payload [%u]: %u", i, node_msg.payload[i]);
+            }
+        break;
+        case UPDATE:
+        case SYNC:
+            ESP_LOGI(TAG_MAIN, "State: %u", node_msg.payload[0]);
+            ESP_LOGI(TAG_MAIN, "Battery low detect: %u", node_msg.payload[1]);
+        break;
+    }
 
-                                        /* Save node in memory */
-                                    }
-                                } else {
-                                    ESP_LOGW(TAG_MAIN, "Warning, device id: %u already exist. Skip", msg_sensor.header.id_node);
-                                }
-                            break;
+    ESP_LOGI(TAG_MAIN, "CRC16: %d", node_msg.crc);
 
-                            case UPDATE:
-                                if(update_sensors_to_list(node_sensors_list, msg_sensor)) {
-                                    node_gateway_msg_t msg_gateway;
+    return;
+}
 
-                                    ESP_LOGI(TAG_MAIN, "Update state sensor inside list");
+/* Run receive task */
+void receive_task(void *arg) {
 
-                                    if(msg_sensor.state && (xEventGroupWaitBits(xEventGroupAlarm, ACTIVE_DEACTIVE_ALARM, pdFALSE, pdFALSE, 0) & ACTIVE_DEACTIVE_ALARM)) {
-                                        ESP_LOGI(TAG_MAIN, "Send command for start siren");
-                                        msg_gateway = build_request_gateway_msg(ID_GATEWAY, (esp_random() % 256), mac_wifi, true);
-                                        send_message(msg_sensor.header.mac, (void *)&msg_gateway);
-                                    }
-                                } else {
-                                    ESP_LOGW(TAG_MAIN, "Warning, sensor id %u not registered", msg_sensor.header.id_node);
-                                }
-                            break;
-                            
-                            case DEL:
-                                ESP_LOGI(TAG_MAIN, "Delete command not used");
-                            break;
+    static esp_err_t err = ESP_FAIL;
+    static esp_now_peer_info_t peer;
+    static node_msg_t node_msg;
 
-                            default:
-                                ESP_LOGW(TAG_MAIN, "Warning, command not valid");
-                            break;
-                        }
-                    break;
-                    case RESPONSE:
-                    /* TODO */
+    while(1) {
+        memset(&node_msg, 0, sizeof(node_msg_t));
+        if(xQueueReceive(receive_queue, &node_msg, portMAX_DELAY) == pdTRUE) {
 
-                    break;
-                }
-
-                print_sensors_list(node_sensors_list);
+            if(calc_crc16_msg((uint8_t *)&node_msg, sizeof(node_msg) - sizeof(uint16_t)) != node_msg.crc) {
+                ESP_LOGW(TAG_MAIN_RECEIVE, "Warning, crc16 not correct discard message");
+                continue;
             }
 
-        }
+            switch(node_msg.header.cmd) {
+                case ADD:
+                    ESP_LOGD(TAG_MAIN_RECEIVE, "Receive add message");
+                    if(!get_node_from_list(node_list, node_msg.header.id_node)) {
+                        ESP_LOGI(TAG_MAIN_RECEIVE, "Add new sensor or siren with device id: %u", node_msg.header.id_node);
 
-        /* Set delay for 50 ms */
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-
-    vTaskDelete(xHandleTask_sensor);
-
-    return;
-}
-
-/* Alarm siren task */
-void siren_task(void *arg) {
-
-    esp_err_t err = ESP_FAIL;
-    uint16_t crc = 0;
-    esp_now_peer_info_t peer;
-    node_siren_msg_t msg_siren;
-    node_gateway_msg_t msg_gateway;
-
-    memset(&msg_siren, 0, sizeof(msg_siren));
-
-    ESP_LOGI(TAG_MAIN, "Stack rimanente: %d byte\n", uxTaskGetStackHighWaterMark(NULL));
-    while(xHandleTask_siren) {
-
-        if (xQueueReceive(node_siren_queue, &msg_siren, portMAX_DELAY) == pdTRUE) {
-
-            ESP_LOGI(TAG_MAIN, "Receive message from siren");
-
-            crc = calc_crc16((uint8_t *)&msg_siren, sizeof(msg_siren) - sizeof(crc));
-            ESP_LOGI(TAG_MAIN, "CRC16 calculate: %u", crc);
-
-            if (crc != msg_siren.crc) {
-                ESP_LOGI(TAG_MAIN, "Warning, crc16 correct discard message");
-            } else {
-                ESP_LOGI(TAG_MAIN, "Success, crc16 correct");
-                switch (msg_siren.header.cmd) { 
-
-                    case ADD:
-                        ESP_LOGI(TAG_MAIN, "Add new siren device");
-
+                        /* Add new peer to list */
                         memset(&peer, 0, sizeof(esp_now_peer_info_t));
                         peer.channel = ESPNOW_WIFI_CHANNEL;
                         peer.ifidx = WIFI_IF_STA;
                         peer.encrypt = false;
+                        memcpy(peer.peer_addr, node_msg.header.mac, MAC_SIZE);
 
-                        memcpy(peer.peer_addr, msg_siren.header.mac, ESP_NOW_ETH_ALEN);
-                        err = esp_now_add_peer(&peer);
-                        if(err != ESP_OK){
-                            ESP_LOGE(TAG_MAIN, "Error, peer siren not added");
-                        }
-                    break;
-        
-                    case UPDATE:
-                        ESP_LOGI(TAG_MAIN, "Update status siren");
-
-                    break;
-                    
-                    case DEL:
-                        ESP_LOGI(TAG_MAIN, "Del command not used");
-                        /* TODO */
-                    break;
-
-                    default:
-                        ESP_LOGW(TAG_MAIN, "Warning, command not valid");
-                    break;
-
-                }
-            }
-        }
-
-        /* Set delay for 50 ms */
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-
-    vTaskDelete(xHandleTask_siren);
-
-    return;
-}
-
-/* Alarm keyboard task */
-void keyboard_task(void *arg) {
-
-    esp_err_t err = ESP_FAIL;
-    uint16_t crc = 0;
-    esp_now_peer_info_t peer;
-    node_keyboard_msg_t msg_keyboard;
-    node_gateway_msg_t msg_gateway;
-
-    memset(&msg_keyboard, 0, sizeof(msg_keyboard));
-
-    while(xHandleTask_keyboard) {
-
-        if (xQueueReceive(node_keyboard_queue, &msg_keyboard, portMAX_DELAY) == pdTRUE) {
-
-            ESP_LOGI(TAG_MAIN, "Receive message from keyboard");
-
-            crc = calc_crc16((uint8_t *)&msg_keyboard, sizeof(msg_keyboard) - sizeof(crc));
-            ESP_LOGI(TAG_MAIN, "CRC16 calculate: %u", crc);
-
-            if (crc != msg_keyboard.crc) {
-                ESP_LOGI(TAG_MAIN, "Warning, crc16 correct discard message");
-            } else {
-
-                ESP_LOGI(TAG_MAIN, "Success, crc16 correct ");
-                switch (msg_keyboard.header.cmd) {
-                    case ADD:
-                        ESP_LOGI(TAG_MAIN, "Add new keyboard device");
-
-                        memset(&peer, 0, sizeof(esp_now_peer_info_t));
-                        peer.channel = ESPNOW_WIFI_CHANNEL;
-                        peer.ifidx = WIFI_IF_STA;
-                        peer.encrypt = false;
-
-                        memcpy(peer.peer_addr, msg_keyboard.header.mac, 6);
                         err = esp_now_add_peer(&peer);
                         if(err != ESP_OK) {
-                            ESP_LOGE(TAG_MAIN, "Error, peer keyboard not added");
+                            ESP_LOGE(TAG_MAIN_RECEIVE, "Error, peer node not added");
+                        } else {
+                            ESP_LOGI(TAG_MAIN_RECEIVE, "Peer node added correctly");
+                            /* Adds sensor to list */
+                            node_list = add_node_to_list(node_list, node_msg);
+
+                            /* Send response to node */
+                            time_t t;
+                            time(&t);
+                            node_msg = build_node_msg(ADD, ID_GATEWAY, GATEWAY, (esp_random() % 256), mac_wifi, "gateway", &t);
+                            if(xQueueSend(send_queue, &node_msg, pdMS_TO_TICKS(50)) != pdTRUE) {
+                                ESP_LOGE(TAG_MAIN_RECEIVE, "Error, queue full discard message");
+                            }
                         }
-                    break;
-                    case ACTIVE:
-                        ESP_LOGI(TAG_MAIN, "Active alarm");
-                        xEventGroupSetBits(xEventGroupAlarm, ACTIVE_DEACTIVE_ALARM);
-                    break;
-                    case GET:
-                        ESP_LOGI(TAG_MAIN, "Get status sensors and siren");
-                    break;
-                    case DEACTIVE:
-                        ESP_LOGI(TAG_MAIN, "Deactive alarm");
-                        xEventGroupClearBits(xEventGroupAlarm, ACTIVE_DEACTIVE_ALARM);
-                    break;
-                    default:
-                        ESP_LOGW(TAG_MAIN, "Warning, command not valid");
-                    break;
-                }
+                    } else {
+                        ESP_LOGW(TAG_MAIN_RECEIVE, "Warning, node device id %u already exist. Skip", node_msg.header.id_node);
+                    }
+                break;
+                case DEL:
+                    ESP_LOGD(TAG_MAIN_RECEIVE, "Receive delete message");
+                break;
+                case SYNC:
+                    ESP_LOGD(TAG_MAIN_RECEIVE, "Receive sync message response");
+                    /* Receive response from node */
+                    remove_pending_msg(node_msg.header.id_node, node_msg.header.cmd, node_msg.header.id_msg);
+                break;
+                case UPDATE:
+                    ESP_LOGD(TAG_MAIN_RECEIVE, "Receive update message response");
 
+                    /* Receive response from node */
+                    if(update_node_to_list(node_list, node_msg)) {
+                        ESP_LOGD(TAG_MAIN_RECEIVE, "Update state node id: %u inside list", node_msg.header.id_node);
+                        remove_pending_msg(node_msg.header.id_node, node_msg.header.cmd, node_msg.header.id_msg);
+                    } else {
+                        ESP_LOGW(TAG_MAIN_RECEIVE, "Warning, node id %u not registered", node_msg.header.id_node);
+                    }
+                break;
+                case ACTIVE_ALARM:
+                    ESP_LOGD(TAG_MAIN_RECEIVE, "Active alarm");
+                break;
+                case DEACTIVE_ALARM:
+                    ESP_LOGD(TAG_MAIN_RECEIVE, "Deactive alarm");
+                    /* Stop siren if running */
+                    node_msg = build_node_msg(STOP_SIREN, ID_GATEWAY, GATEWAY, (esp_random() % 256), mac_wifi, "gateway", NULL);
+                    if(xQueueSend(send_queue, &node_msg, pdMS_TO_TICKS(50)) == pdPASS) {
+                        ESP_LOGE(TAG_MAIN, "Error, queue full discard message");
+                    }
+                break;
+                case ALARM:
+                    status_node sn;
+                    memcpy(&sn, node_msg.payload, sizeof(status_node));
+                    ESP_LOGI(TAG_MAIN_RECEIVE, "State %u for id sensor: %u", sn.state, node_msg.header.id_node);
+                    ESP_LOGI(TAG_MAIN_RECEIVE, "Battery low detect: %u for id sensor: %u", sn.battery_low_detect, node_msg.header.id_node);
+
+                    if(sn.state && (xEventGroupWaitBits(xEventGroupAlarm, ACTIVE_DEACTIVE_ALARM, pdFALSE, pdFALSE, 0) & ACTIVE_DEACTIVE_ALARM)) {
+                        ESP_LOGI(TAG_MAIN_RECEIVE, "Send command for start siren");
+                        node_msg = build_node_msg(START_SIREN, ID_GATEWAY, GATEWAY, (esp_random() % 256), mac_wifi, "gateway", NULL);
+                        if(xQueueSend(send_queue, &node_msg, pdMS_TO_TICKS(50)) == pdPASS) {
+                            ESP_LOGE(TAG_MAIN_RECEIVE, "Error, queue full discard message");
+                        }
+                    }
+                break;
             }
-
-            /* Set delay for 50 ms */
-            vTaskDelay(pdMS_TO_TICKS(200));
         }
-    }
 
-    vTaskDelete(xHandleTask_keyboard);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 
     return;
 }
 
-/* Monitoring task */
-void monitoring_task(void *arg) {
+/* Run send task */
+void send_task(void *arg) {
+
+    static uint32_t slot_start = 0;
+    static uint32_t slot_end = 0;
+    static time_t now = 0;
+    static uint64_t current_cycle = 0; // (now - target_time) / CYCLE_TIME_S;
+    static uint64_t slot_time = 0;     // (now - target_time) % CYCLE_TIME_S;
+    static node_msg_t msg;
+
+    ESP_LOGI(TAG_MAIN_SEND, "Real time: %lld", target_time);
 
     while(1) {
 
-        /* Restart sensor task if is dead */
-        if (eTaskGetState(xHandleTask_sensor) == eDeleted) {
-            ESP_LOGW(TAG_MAIN, "Warning, sensor task is dead. Restart");
-            xTaskCreate(keyboard_task, "sensor_task", 1024 * 2, NULL, 2, &xHandleTask_sensor);
+        time(&now);
+        if ((now - target_time) >= 240) { // 4 minutes
+            ESP_LOGI(TAG_MAIN_SEND, "Attention, reset cicle");
+            target_time = now;
         }
 
-        /* Restart siren task if is dead */
-        if (eTaskGetState(xHandleTask_siren) == eDeleted) {
-            ESP_LOGW(TAG_MAIN, "Warning, siren task is dead. Restart");
-            xTaskCreate(keyboard_task, "siren_task", 1024 * 2, NULL, 2, &xHandleTask_siren);
+        current_cycle = (now - target_time) / CYCLE_TIME_S;
+        slot_time = (now - target_time) % CYCLE_TIME_S;     // Verifico che nodo devo sincronizzare
+        
+        ESP_LOGI(TAG_MAIN_SEND, "Slot number: %llu", slot_time);
+        ESP_LOGI(TAG_MAIN_SEND, "Current cycle: %llu", current_cycle);
+
+        node_list = get_first_node_from_list(node_list);
+        while (node_list != NULL) {
+
+            if (node_list->node.id_node == 0) {
+                node_list = node_list->next;
+                continue;
+            }
+
+            slot_start = node_list->node.id_node * SLOT_DURATION_S;
+            slot_end = slot_start + SLOT_DURATION_S;
+
+            /* Sync and update */
+            if (slot_time >= slot_start && slot_time < slot_end) {
+                if (node_list->node.last_sync_cycle != current_cycle) {
+                    uint8_t id_msg = (esp_random() % 256);
+                    msg = build_node_msg(UPDATE, ID_GATEWAY, GATEWAY, id_msg, mac_wifi, "gateway", NULL);
+                    if (!send_message(node_list->node.mac, msg)) {
+                        ESP_LOGE(TAG_MAIN_SEND, "Error, sync to node id %u failed", node_list->node.id_node);
+                    } else {
+                        /* Add pending message to list */
+                        add_pending_msg(node_list->node.id_node, UPDATE, id_msg);
+                        ESP_LOGD(TAG_MAIN_SEND, "Sent update message to node id %u in cycle %llu", node_list->node.id_node, current_cycle);
+                        node_list->node.last_sync_cycle = current_cycle;
+                    }
+                }
+            }
+        
+            node_list = node_list->next;
         }
 
-        /* Restart keyboard task if is dead */
-        if (eTaskGetState(xHandleTask_keyboard) == eDeleted) {
-            ESP_LOGW(TAG_MAIN, "Warning, keyboard task is dead. Restart");
-            xTaskCreate(keyboard_task, "keyboard_task", 1024 * 2, NULL, 2, &xHandleTask_keyboard);
+        /* Receive message from send queue */
+        if(xQueueReceive(send_queue, &msg, portMAX_DELAY) == pdTRUE) {
+            /* Check send message to node or siren */
+            node_list = get_node_from_list(node_list, msg.header.id_node);
+            if(!send_message(node_list->node.mac, msg)) {
+                ESP_LOGE(TAG_MAIN_SEND, "Error, message not send to node");
+            } else {
+                /* Add pending message to list */
+                add_pending_msg(msg.header.id_node, msg.header.cmd, msg.header.id_msg);
+                ESP_LOGD(TAG_MAIN_SEND, "Add pending message to list");
+            }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    vTaskDelete(xHandleTask_monitoring);
+    return;
 }
 
 /* Main program */
 void app_main(void) {
 
     esp_err_t err = ESP_FAIL;
-    esp_now_peer_info_t peer;
 
     /* Init nvs flash */
     err = nvs_flash_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG_MAIN, "Error, flash not init");
+        ESP_LOGD(TAG_MAIN, "Error, flash not init");
 
         /* Erase flash */
         err = nvs_flash_erase();
         if (err != ESP_OK) {
-            ESP_LOGE(TAG_MAIN, "Error, flash not erase");
+            ESP_LOGD(TAG_MAIN, "Error, flash not erase");
             return;
         }
         nvs_flash_init();
     }
 
-    /* Initialize stack TCP/IP */
+    /* Initialize stack */
     err = esp_netif_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG_MAIN, "Error, network interface WiFi not init");
+        ESP_LOGD(TAG_MAIN, "Error, network interface WiFi not init");
         return;
     }
 
@@ -432,115 +469,85 @@ void app_main(void) {
     /* Read MAC WiFi address */
     err = esp_read_mac(mac_wifi, ESP_MAC_WIFI_STA);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG_MAIN, "Error, MAC address WiFi not read");
+        ESP_LOGD(TAG_MAIN, "Error, MAC address WiFi not read");
         return;
     }
 
-    ESP_LOGI(TAG_MAIN, "MAC address WiFi gateway: %X:%X:%X:%X:%X:%X", mac_wifi[0], mac_wifi[1], mac_wifi[2], mac_wifi[3], mac_wifi[4], mac_wifi[5]);
-
-    /* Read MAC Ethernet address */
-    err = esp_read_mac(mac_eth, ESP_MAC_ETH);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG_MAIN, "Error, MAC address ethernet not read");
-        return;
-    }
-
-    ESP_LOGI(TAG_MAIN, "MAC address Ethernet gateway: %X:%X:%X:%X:%X:%X", mac_eth[0], mac_eth[1], mac_eth[2], mac_eth[3], mac_eth[4], mac_eth[5]);
-
-    /* Init eth */
+    /* Init ethernet */
     err = init_eth();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG_MAIN, "Error, Ethernet not setting");
+        ESP_LOGD(TAG_MAIN, "Error, Ethernet not init");
         return;
     }
 
     /* Init wifi station */
     err = init_wifi_sta();
     if(err != ESP_OK) {
-        ESP_LOGE(TAG_MAIN, "Error, Wifi not setting");
+        ESP_LOGE(TAG_MAIN, "Error, WiFi not init");
         return;
     }
 
     /* Init espnow protocol */
     err = esp_now_init();
     if (err != ESP_OK) {
-        ESP_LOGI(TAG_MAIN, "Error, espnow not init");
+        ESP_LOGE(TAG_MAIN, "Error, espnow not init");
         return;
     }
 
     /* Create event group alarm */
     xEventGroupAlarm = xEventGroupCreate();
     if (!xEventGroupAlarm) {
-        ESP_LOGE(TAG_MAIN, "Error, event group not created");
+        ESP_LOGD(TAG_MAIN, "Error, event group not created");
         return;
     }
 
-    node_sensor_queue = xQueueCreate(SENSOR_QUEUE_SIZE, sizeof(node_sensor_msg_t));
-    if(!node_sensor_queue) {
-        ESP_LOGE(TAG_MAIN, "Error, alarm queue not allocated");
+    /* Create pending mutex for messages list */
+    pending_msg_mutex = xSemaphoreCreateMutex();
+    if(!pending_msg_mutex) {
+        ESP_LOGD(TAG_MAIN, "Error, mutex not allocted");
         return;
     }
 
-    node_siren_queue = xQueueCreate(SIREN_QUEUE_SIZE, sizeof(node_siren_msg_t));
-    if(!node_siren_queue) {
-        ESP_LOGE(TAG_MAIN, "Error, siren queue not allocated");
+    /* Create send queue */
+    send_queue = xQueueCreate(NODE_QUEUE_SIZE, sizeof(node_msg_t));
+    if(!send_queue) {
+        ESP_LOGD(TAG_MAIN, "Error, send queue not allocated");
         return;
     }
 
-    node_keyboard_queue = xQueueCreate(KEYBOARD_QUEUE_SIZE, sizeof(node_keyboard_msg_t));
-    if(!node_keyboard_queue) {
-        ESP_LOGE(TAG_MAIN, "Error, keyboard queue not allocated");
+    /* Create receive queue */
+    receive_queue = xQueueCreate(NODE_QUEUE_SIZE, sizeof(node_msg_t));
+    if(!receive_queue) {
+        ESP_LOGD(TAG_MAIN, "Error, receive queue not allocated");
         return;
     }
 
     /* Register send callback function */
     err = esp_now_register_send_cb(espnow_send_cb);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG_MAIN, "Error, send callback function no registered");
+        ESP_LOGD(TAG_MAIN, "Error, send callback function no registered");
         return;
     }
 
-    /* Receive callback function */
+    /* Register receive callback function */
     err = esp_now_register_recv_cb(espnow_recv_cb);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG_MAIN, "Error, receive callback function no registered");
+        ESP_LOGD(TAG_MAIN, "Error, receive callback function no registered");
         return;
     }
 
-    /* Add peer to list */
-    memset(&peer, 0, sizeof(esp_now_peer_info_t));
-    peer.channel = ESPNOW_WIFI_CHANNEL;
-    peer.ifidx = WIFI_IF_STA;
-    peer.encrypt = false;
+    /* Init mqtt service */
+    // init_mqtt();
 
-    memcpy(peer.peer_addr, dest_mac, ESP_NOW_ETH_ALEN);
-    err = esp_now_add_peer(&peer);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG_MAIN, "Error, peer not added");
+    /* Start receive task */
+    if(xTaskCreatePinnedToCore(receive_task, "receive_task", 1024 * 3, NULL, 0, NULL, 0) != pdPASS) {
+        ESP_LOGD(TAG_MAIN, "Error, receive task not started");
         return;
     }
 
-    /* Start sensor task */
-    if(xTaskCreate(sensor_task, "sensor_task", 1024 * 2, NULL, 0, &xHandleTask_sensor) != pdPASS) {
-        ESP_LOGE(TAG_MAIN, "Error, sensor task not started");
-        return;
-    }
-
-    /* Start siren task */
-    if(xTaskCreate(siren_task, "siren_task", 1024 * 2, NULL, 1, &xHandleTask_siren) != pdPASS) {
-        ESP_LOGE(TAG_MAIN, "Error, siren task not started");
-        return;
-    }
-
-    /* Start keyboard task */
-    if(xTaskCreate(keyboard_task, "keyboard_task", 1024 * 2, NULL, 2, &xHandleTask_keyboard) != pdPASS) {
-        ESP_LOGE(TAG_MAIN, "Error, keyboard task not started");
-        return;
-    }
-
-    /* Start monitoring task */
-    if(xTaskCreate(monitoring_task, "monitoring_task", 1024 * 2, NULL, 3, &xHandleTask_monitoring) != pdPASS) {
-        ESP_LOGE(TAG_MAIN, "Error, monitoring task not started");
+    /* Start send task */
+    if(xTaskCreatePinnedToCore(send_task, "send_task", 1024 * 3, NULL, 0, NULL, 1) != pdPASS) {
+        ESP_LOGD(TAG_MAIN, "Error, send task not started");
         return;
     }
 
