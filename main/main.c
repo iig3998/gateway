@@ -52,6 +52,7 @@ static uint8_t mac_wifi[MAC_SIZE] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 static QueueHandle_t receive_queue;
 static QueueHandle_t send_queue;
+static EventGroupHandle_t xEventGroupAlarm;
 
 
 
