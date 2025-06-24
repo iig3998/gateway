@@ -15,6 +15,8 @@
         "mqtt_client.h": "c",
         "keyboard.h": "c",
         "cstdint": "cpp",
-        "time.h": "c"
+        "time.h": "c",
+        "sdkconfig.h": "c",
+        "unordered_map": "c"
     }
 }
