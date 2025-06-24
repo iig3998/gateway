@@ -6,19 +6,13 @@
 #include "driver/gpio.h"
 
 #include "lwip/inet.h"
-
 #include "lwip/sockets.h"
-#include "sdkconfig.h"
-
-#define SOCKET_PORT         5000
-#define SOCKET_MAX_LENGTH   128
 
 #define ETH_MDC_GPIO     23
 #define ETH_MDIO_GPIO    18
 #define ETH_PHY_RST_GPIO 5
 #define ETH_PHY_ADDR     1
 #define ETH_POWER_PIN    16
-
 
 #define TAG_ETHERNET "ETHERNET"
 
