@@ -55,6 +55,8 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
 static void got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
 
     ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+    if(!event)
+        return;
 
     ESP_LOGI(TAG_ETHERNET, "IP gateway: %u.%u.%u.%u", IP2STR(&event->ip_info.ip));
 
@@ -71,6 +73,11 @@ esp_err_t init_eth() {
     /* Power on device */
     gpio_set_direction(ETH_POWER_PIN, GPIO_MODE_OUTPUT);
     gpio_set_level(ETH_POWER_PIN, 1);
+
+    gpio_set_direction(ETH_PHY_RST_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(ETH_PHY_RST_GPIO, 0);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    gpio_set_level(ETH_PHY_RST_GPIO, 1);
     vTaskDelay(pdMS_TO_TICKS(100));
 
     esp_netif_config_t cfg = ESP_NETIF_DEFAULT_ETH();
