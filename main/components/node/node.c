@@ -85,7 +85,6 @@ struct node_list_t *add_node_to_list(struct node_list_t *p, node_msg_t pn) {
     px->node.state = sn.state;
 
     px->node.time = time(NULL);
-
     px->next = NULL;
 
     if(!p){
@@ -213,7 +212,6 @@ node_msg_t build_node_msg(cmd_type cmd, uint8_t id_node, node_type node, uint8_t
     if (payload) {
         switch(cmd) {
             case ADD:
-                ESP_LOGI(TAG_NODE, "Time: %lld", *((time_t *)payload));
                 memcpy(msg.payload, payload, sizeof(time_t));
             break;
             case UPDATE:
