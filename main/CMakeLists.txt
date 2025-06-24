@@ -2,7 +2,7 @@ idf_component_register(
                     SRCS "main.c"
                     SRCS "components/wifi/wifi.c"
                     SRCS "components/common/common.c"
-                    SRCS "components/node/node.c"
+                    SRCS "components/node/node_array.c"
                     SRCS "components/mqtt/mqtt.c"
                     SRCS "components/ethernet/ethernet.c"
                     SRCS "components/conf/conf.c"
