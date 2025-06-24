@@ -31,18 +31,18 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
     switch (event_id) {
     case ETHERNET_EVENT_CONNECTED:
         esp_eth_ioctl(eth_handle, ETH_CMD_G_MAC_ADDR, mac_addr);
-        ESP_LOGI(TAG_ETHERNET, "Ethernet Link Up");
-        ESP_LOGI(TAG_ETHERNET, "Ethernet HW Addr %02x:%02x:%02x:%02x:%02x:%02x",
+        ESP_LOGD(TAG_ETHERNET, "Ethernet Link Up");
+        ESP_LOGD(TAG_ETHERNET, "Ethernet HW Addr %02x:%02x:%02x:%02x:%02x:%02x",
                     mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
         break;
     case ETHERNET_EVENT_DISCONNECTED:
-        ESP_LOGI(TAG_ETHERNET, "Ethernet Link Down");
+        ESP_LOGD(TAG_ETHERNET, "Ethernet Link Down");
         break;
     case ETHERNET_EVENT_START:
-        ESP_LOGI(TAG_ETHERNET, "Ethernet Started");
+        ESP_LOGD(TAG_ETHERNET, "Ethernet Started");
         break;
     case ETHERNET_EVENT_STOP:
-        ESP_LOGI(TAG_ETHERNET, "Ethernet Stopped");
+        ESP_LOGD(TAG_ETHERNET, "Ethernet Stopped");
         break;
     default:
         break;
@@ -66,7 +66,7 @@ esp_err_t init_eth() {
 
     esp_err_t err = ESP_FAIL;
 
-    ESP_LOGI(TAG_ETHERNET, "Start Ethernet");
+    ESP_LOGD(TAG_ETHERNET, "Start Ethernet");
 
     /* Power on device */
     gpio_set_direction(ETH_POWER_PIN, GPIO_MODE_OUTPUT);
