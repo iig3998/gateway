@@ -8,7 +8,7 @@ esp_err_t init_wifi_sta() {
 
     esp_err_t err = ESP_FAIL;
 
-    ESP_LOGI(TAG_WIFI, "Start WiFi station");
+    ESP_LOGD(TAG_WIFI, "Start WiFi station");
 
     wifi_init_config_t wifi_initiation = WIFI_INIT_CONFIG_DEFAULT();
     err = esp_wifi_init(&wifi_initiation);
