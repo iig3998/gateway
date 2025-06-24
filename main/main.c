@@ -22,7 +22,7 @@
 
 #include "common.h"
 #include "wifi.h"
-#include "node.h"
+#include "node_array.h"
 #include "mqtt.h"
 #include "ethernet.h"
 #include "conf.h"
