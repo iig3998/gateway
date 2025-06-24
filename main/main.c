@@ -200,24 +200,6 @@ static bool send_message(uint8_t dst_mac[], node_msg_t msg) {
     return true;
 }
 
-/* Time to byte */
-static void time_to_bytes(time_t t, uint8_t *p) {
-
-    memcpy(p, &t, sizeof(time_t));
-
-    return;
-}
-
-/* Byte to time */
-static time_t bytes_to_time(uint8_t *p) {
-
-    time_t t;
-
-    memcpy(&t, p, sizeof(time_t));
-
-    return t;
-}
-
 /* Print hours */
 static void print_hour(time_t t) {
 
