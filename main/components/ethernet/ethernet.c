@@ -16,33 +16,26 @@
 
 #define TAG_ETHERNET "ETHERNET"
 
+
+/* Ethernet Event Handler */
 static void eth_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
 
-    uint8_t mac_addr[6] = {0};
-    /* we can get the ethernet driver handle from event data */
-    esp_eth_handle_t eth_handle = *(esp_eth_handle_t *)event_data;
-
     switch (event_id) {
-    case ETHERNET_EVENT_CONNECTED:
-        esp_eth_ioctl(eth_handle, ETH_CMD_G_MAC_ADDR, mac_addr);
-        ESP_LOGD(TAG_ETHERNET, "Ethernet Link Up");
-        ESP_LOGD(TAG_ETHERNET, "Ethernet HW Addr %02x:%02x:%02x:%02x:%02x:%02x",
-                    mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-        break;
-    case ETHERNET_EVENT_DISCONNECTED:
-        ESP_LOGD(TAG_ETHERNET, "Ethernet Link Down");
-        break;
-    case ETHERNET_EVENT_START:
-        ESP_LOGD(TAG_ETHERNET, "Ethernet Started");
-        break;
-    case ETHERNET_EVENT_STOP:
-        ESP_LOGD(TAG_ETHERNET, "Ethernet Stopped");
-        break;
-    default:
-        break;
+        case ETHERNET_EVENT_CONNECTED:
+            ESP_LOGD(TAG_ETHERNET, "Ethernet connected");
+            break;
+        case ETHERNET_EVENT_DISCONNECTED:
+            ESP_LOGD(TAG_ETHERNET, "Ethernet Link Down");
+            break;
+        case ETHERNET_EVENT_START:
+            ESP_LOGD(TAG_ETHERNET, "Ethernet Started");
+            break;
+        case ETHERNET_EVENT_STOP:
+            ESP_LOGD(TAG_ETHERNET, "Ethernet Stopped");
+            break;
+        default:
+            break;
     }
-
-    return;
 }
 
 /* Event IP function */
