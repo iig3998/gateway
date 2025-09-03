@@ -18,9 +18,10 @@
 #define ETH_PHY_ADDR     1
 #define ETH_POWER_PIN    16
 
+#define GOT_ETH_IP_BIT   (1 << 0)
+
 #define TAG_ETHERNET "ETHERNET"
 
-#define GOT_ETH_IP_BIT BIT0
 static EventGroupHandle_t eth_event_group;
 
 /* Ethernet Event Handler */
@@ -46,15 +47,21 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
 
 /* IP Event Handler */
 static void got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+
     ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-    if (!event) return;
+    if (!event)
+        return;
 
     ESP_LOGI(TAG_ETHERNET, "IP address: " IPSTR, IP2STR(&event->ip_info.ip));
+
     xEventGroupSetBits(eth_event_group, GOT_ETH_IP_BIT);
+
+    return;
 }
 
 /* Ethernet Init Function */
 esp_err_t init_eth() {
+
     esp_err_t err = ESP_FAIL;
 
     ESP_LOGD(TAG_ETHERNET, "Start Ethernet");
@@ -65,22 +72,22 @@ esp_err_t init_eth() {
         return ESP_FAIL;
     }
 
-    // Power on PHY
+    /* Power on PHY ethernet */
     gpio_set_direction(ETH_POWER_PIN, GPIO_MODE_OUTPUT);
     gpio_set_level(ETH_POWER_PIN, 1);
 
-    // Reset PHY
+    /* Reset PHY */
     gpio_set_direction(ETH_PHY_RST_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_level(ETH_PHY_RST_GPIO, 0);
     vTaskDelay(pdMS_TO_TICKS(50));
     gpio_set_level(ETH_PHY_RST_GPIO, 1);
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    // Create network interface
+    /* Create network interface */
     esp_netif_config_t cfg = ESP_NETIF_DEFAULT_ETH();
     esp_netif_t *eth_netif = esp_netif_new(&cfg);
 
-    // MAC config
+    /* Configure MAC */
     eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
     eth_esp32_emac_config_t esp32_emac_config = ETH_ESP32_EMAC_DEFAULT_CONFIG();
 
@@ -95,7 +102,7 @@ esp_err_t init_eth() {
         return ESP_FAIL;
     }
 
-    // PHY config
+    /* Config phy ethernet */
     eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
     phy_config.phy_addr = ETH_PHY_ADDR;
     phy_config.reset_gpio_num = ETH_PHY_RST_GPIO;
@@ -107,7 +114,7 @@ esp_err_t init_eth() {
         return ESP_FAIL;
     }
 
-    // Install Ethernet driver
+    /* Install Ethernet driver */
     esp_eth_handle_t eth_handle = NULL;
     esp_eth_config_t config = ETH_DEFAULT_CONFIG(mac, phy);
 
@@ -117,35 +124,28 @@ esp_err_t init_eth() {
         return err;
     }
 
-    // Attach netif to driver
+    /* Attach netif to driver */
     err = esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handle));
     if (err != ESP_OK) {
         ESP_LOGE(TAG_ETHERNET, "Ethernet interface not attached");
         return err;
     }
 
-    // Register event handlers
+    /* Register event handlers */
     esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID, &eth_event_handler, NULL);
     esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &got_ip_event_handler, NULL);
 
-    // Start Ethernet
+    /* Start Ethernet */
     err = esp_eth_start(eth_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG_ETHERNET, "Ethernet start failed");
         return err;
     }
 
-    // Wait for IP address indefinitely
-    ESP_LOGI(TAG_ETHERNET, "Waiting for IP address (blocking)...");
-    EventBits_t bits = xEventGroupWaitBits(
-        eth_event_group,
-        GOT_ETH_IP_BIT,
-        pdFALSE,
-        pdTRUE,
-        portMAX_DELAY
-    );
-
-    if (!(bits & GOT_ETH_IP_BIT)) {
+    /* Wait for IP address indefinitely */
+    ESP_LOGI(TAG_ETHERNET, "Waiting for IP address ...");
+    
+    if (!(xEventGroupWaitBits(eth_event_group, GOT_ETH_IP_BIT, pdFALSE, pdTRUE, portMAX_DELAY) & GOT_ETH_IP_BIT)) {
         ESP_LOGE(TAG_ETHERNET, "Failed to get IP address");
         return ESP_FAIL;
     }
