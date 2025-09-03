@@ -1,46 +1,84 @@
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "esp_log.h"
 #include "node_array.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
+#define NODE_SIZE 20
+
 #define TAG_NODE "NODE_ARRAY"
 
 static uint8_t counter_node = 0;
-static node_t nl[10] = {};
+static node_t nl[NODE_SIZE] = {0};
+static SemaphoreHandle_t xNodeListMutex = NULL;
+
+/* Init the node array mutex */
+bool init_node_list_mutex(void) {
+
+    xNodeListMutex = xSemaphoreCreateMutex();
+    if (!xNodeListMutex) {
+        ESP_LOGE(TAG_NODE, "Error, node mutex not allocated");
+        return false;
+    }
+
+    return true;
+}
 
 /* Return node from list */
 bool check_node_inside_list(uint8_t id) {
 
-    if(nl[id].id_node)
-        return true;
+    bool result = false;
 
-    return false;
+    if (!id || id > NODE_SIZE)
+        return result;
+
+    if (xSemaphoreTake(xNodeListMutex, portMAX_DELAY)) {
+        result = (nl[id - 1].id_node != 0);
+        xSemaphoreGive(xNodeListMutex);
+    }
+
+    return result;
 }
 
+/* Get node from list */
 node_t get_node_from_list(uint8_t id) {
 
-    return nl[id];
+    node_t node;
+    memset(&node, 0, sizeof(node_t));
+
+    if (xSemaphoreTake(xNodeListMutex, portMAX_DELAY)) {
+        memcpy(&node, &nl[id - 1], sizeof(node));
+        xSemaphoreGive(xNodeListMutex);
+    }
+
+    return node;
 }
 
 /* Add node to list */
 void add_node_to_list(node_msg_t msg) {
 
-    time_t t;
-    status_node sn;
+    if (xSemaphoreTake(xNodeListMutex, portMAX_DELAY)) {
+        status_node sn;
 
-    memcpy(&nl[msg.header.id_node - 1].mac, msg.header.mac, 6);
+        uint8_t index = msg.header.id_node - 1;
+        memcpy(&nl[index].mac, msg.header.mac, 6);
 
-    nl[msg.header.id_node - 1].is_alive = true;
-    nl[msg.header.id_node - 1].id_node = msg.header.id_node;
+        nl[index].is_alive = true;
+        nl[index].id_node = msg.header.id_node;
 
-    memcpy(&sn, msg.payload, sizeof(status_node));
-    nl[msg.header.id_node - 1].battery_low_detect = sn.battery_low_detect;
-    nl[msg.header.id_node - 1].state = sn.state;
-    time(&t);
-    nl[msg.header.id_node - 1].time = t;
+        memcpy(&sn, msg.payload, sizeof(status_node));
+        nl[index].battery_low_detect = sn.battery_low_detect;
+        nl[index].state = sn.state;
+        nl[index].time = time(NULL);
 
-    counter_node++;
+        counter_node++;
+
+        xSemaphoreGive(xNodeListMutex);
+    }
 
     return;
 }
@@ -48,7 +86,11 @@ void add_node_to_list(node_msg_t msg) {
 /* Delete node from list */
 void del_node_from_list(uint8_t id) {
 
-    memcpy(&nl[id - 1], 0, sizeof(node_t));
+    if (xSemaphoreTake(xNodeListMutex, portMAX_DELAY)) {
+        memset(&nl[id - 1], 0, sizeof(node_t));
+        counter_node--;
+        xSemaphoreGive(xNodeListMutex);
+    }
 
     return;
 }
@@ -56,14 +98,19 @@ void del_node_from_list(uint8_t id) {
 /* Update node */
 void update_node_to_list(node_msg_t msg) {
 
-    status_node sn;
+    if (xSemaphoreTake(xNodeListMutex, portMAX_DELAY)) {
+        status_node sn;
+        uint8_t index = msg.header.id_node - 1;
 
-    nl[msg.header.id_node - 1].is_alive = true;
+        nl[index].is_alive = true;
 
-    memcpy(&sn, msg.payload, sizeof(status_node));
-    nl[msg.header.id_node - 1].battery_low_detect = sn.battery_low_detect;
-    nl[msg.header.id_node - 1].state = sn.state;
-    nl[msg.header.id_node - 1].time = time(NULL);
+        memcpy(&sn, msg.payload, sizeof(status_node));
+        nl[index].battery_low_detect = sn.battery_low_detect;
+        nl[index].state = sn.state;
+        nl[index].time = time(NULL);
+
+        xSemaphoreGive(xNodeListMutex);
+    }
 
     return;
 }
@@ -71,20 +118,31 @@ void update_node_to_list(node_msg_t msg) {
 /* Return number of node inside list */
 uint8_t get_num_node_from_list() {
 
-    return counter_node;
+    uint8_t num = 0;
+
+    if (xSemaphoreTake(xNodeListMutex, portMAX_DELAY)) {
+        num = counter_node;
+        xSemaphoreGive(xNodeListMutex);
+    }
+
+    return num;
 }
 
 /* Print node id list */
 void print_node_list() {
 
-    ESP_LOGD(TAG_NODE, "|---------------------------------------------------------------------------------|");
-    ESP_LOGD(TAG_NODE, "|   ID   |  State reed switch  |  Status battery  |  Is alive  | Time last update |");
-    ESP_LOGD(TAG_NODE, "|---------------------------------------------------------------------------------|");
+    if (xSemaphoreTake(xNodeListMutex, portMAX_DELAY)) {
+        ESP_LOGI(TAG_NODE, "|---------------------------------------------------------------------------------|");
+        ESP_LOGI(TAG_NODE, "|   ID   |  State reed switch  |  Status battery  |  Is alive  | Time last update |");
+        ESP_LOGI(TAG_NODE, "|---------------------------------------------------------------------------------|");
 
-    for(uint8_t i = 0; i < 10; i++) {
-        if(nl[i].id_node) {
-            ESP_LOGD(TAG_NODE, "| %6u | %16u | %16u | %16d | %16llu |", nl[i].id_node, nl[i].state, nl[i].battery_low_detect, nl[i].is_alive, nl[i].time);
+        for (uint8_t i = 0; i < 10; i++) {
+            if (nl[i-1].id_node) {
+                ESP_LOGI(TAG_NODE, "| %6u | %19u | %19u | %13d | %13lld |", nl[i-1].id_node, nl[i-1].state, nl[i-1].battery_low_detect, nl[i-1].is_alive, nl[i-1].time);
+            }
         }
+
+        xSemaphoreGive(xNodeListMutex);
     }
 
     return;
@@ -94,7 +152,6 @@ void print_node_list() {
 node_msg_t build_node_msg(cmd_type cmd, uint8_t id_node, node_type node, uint8_t id_msg, uint8_t mac[], const char *name_node, void *payload) {
 
     node_msg_t msg;
-
     memset(&msg, 0, sizeof(node_msg_t));
 
     msg.header.cmd = cmd;
@@ -112,15 +169,9 @@ node_msg_t build_node_msg(cmd_type cmd, uint8_t id_node, node_type node, uint8_t
     /* Set payload */
     memset(msg.payload, 0, PAYLOAD_LEN);
     if (payload) {
-        switch(cmd) {
-            case ADD:
-                memcpy(msg.payload, payload, sizeof(time_t));
-            break;
-            case UPDATE:
-            case SYNC:
-                memcpy(msg.payload, payload, sizeof(status_node));
-            break;
-        }
+        memcpy(msg.payload, payload, sizeof(status_node));
+        ESP_LOGI(TAG_NODE, "State: %u", msg.payload[0]);
+        ESP_LOGI(TAG_NODE, "Battery low detect: %u", msg.payload[1]);
     }
 
     msg.crc = calc_crc16_msg((uint8_t *)&msg, sizeof(msg) - sizeof(msg.crc));

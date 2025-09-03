@@ -11,7 +11,7 @@
 
 #define MAC_SIZE    6
 #define NAME_LEN    15
-#define PAYLOAD_LEN 8
+#define PAYLOAD_LEN 2
 
 /* Define node type */
 typedef enum __attribute__((__packed__)) {
@@ -27,12 +27,11 @@ typedef enum __attribute__((__packed__)) {
 	DEL,
 	GET,
 	UPDATE,
-	SYNC,
 	ALARM,
 	START_SIREN,
 	STOP_SIREN,
-	ACTIVE_ALARM,
-	DEACTIVE_ALARM
+	POWER_ON_ALARM,
+	POWER_OFF_ALARM
 } cmd_type;
 
 /* Header struct
@@ -74,6 +73,8 @@ typedef struct {
     bool state;
     bool battery_low_detect;
 } __attribute__((__packed__)) status_node;
+
+bool init_node_list_mutex();
 
 void print_node_list();
 
