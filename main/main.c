@@ -8,6 +8,8 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
+#include "driver/i2c_master.h"
+
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_now.h"
@@ -16,62 +18,68 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
-#include "esp_timer.h"
 #include "esp_random.h"
 #include "esp_sntp.h"
 
 #include "common.h"
 #include "wifi.h"
 #include "node_array.h"
-#include "mqtt.h"
 #include "ethernet.h"
 #include "conf.h"
+#include "eeprom.h"
 
 #define TAG_MAIN               "MAIN"
 #define TAG_MAIN_SEND          "MAIN_SEND"
 #define TAG_MAIN_RECEIVE       "MAIN_RECEIVE"
 
-/* IDs device */
-#define ID_GATEWAY             0x78
+#define ID_GATEWAY             0x78 /* ID device */
 #define NODE_QUEUE_SIZE        10
 #define ESPNOW_WIFI_CHANNEL    7
-#define NUM_RETRASMISSION_TIME 3
-#define CYCLE_TIME_S           60
-#define SLOT_DURATION_S        10
-#define MAX_NUMBER_NODE        10
+
 #define NUMBER_ATTEMPTS        3
 #define RETRASMISSION_TIME_MS  50
+#define MIN_VALID_YEAR         2022
+
 #define DATA_SENT_SUCCESS      (1 << 0)
 #define DATA_SENT_FAILED       (1 << 1)
 #define DATA_RECEIVED_SUCCESS  (1 << 2)
 #define DATA_RECEIVED_FAILED   (1 << 3)
-#define ACTIVE_DEACTIVE_ALARM  (1 << 2)
+#define ACTIVE_ALARM           (1 << 4)
+#define DEACTIVE_ALARM         (1 << 5)
 
-static uint8_t mac_wifi[MAC_SIZE] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-
-//static struct node_list_t *node_list = NULL;
-
-static QueueHandle_t receive_queue;
-static QueueHandle_t send_queue;
-static SemaphoreHandle_t node_mutex;
-static EventGroupHandle_t xEventGroupAlarm;
 static time_t target_time;
+static uint8_t mac_wifi[MAC_SIZE] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static QueueHandle_t receive_queue;
+static EventGroupHandle_t xEventGroupAlarm;
 
+/* Obtian time form the server */
 static void obtain_time(void) {
 
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "pool.ntp.org");
-
-    esp_sntp_init();
-
     uint8_t retry = 0;
+    const uint8_t max_retries = 10;
     time_t now = 0;
     struct tm timeinfo = {0};
 
-    while(timeinfo.tm_year < (2025 - 1900) && ++retry < 10) {
-        vTaskDelay(2000 / portTICK_PERIOD_MS);
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
+
+    while (retry++ < max_retries) {
+
         time(&now);
         localtime_r(&now, &timeinfo);
+
+        if ((timeinfo.tm_year + 1900) >= MIN_VALID_YEAR) {
+            ESP_LOGD("SNTP", "Time synchronized successfully: %s", asctime(&timeinfo));
+            break;
+        }
+
+        ESP_LOGW("SNTP", "Waiting for time sync... attempt %d", retry);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
+    }
+
+    if ((timeinfo.tm_year + 1900) < MIN_VALID_YEAR) {
+        ESP_LOGE("SNTP", "Time synchronization failed after %d attempts", max_retries);
     }
 
     return;
@@ -81,16 +89,15 @@ static void obtain_time(void) {
 static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status) {
 
     if (!mac_addr) {
-        ESP_LOGE(TAG_MAIN, "Error, MAC address not valid");
         return;
     }
 
     if(status == ESP_NOW_SEND_SUCCESS) {
-        ESP_LOGD(TAG_MAIN, "Message sent correctly");
+        /* Message sent correctly */
         xEventGroupSetBits(xEventGroupAlarm, DATA_SENT_SUCCESS);
     } else if (status == ESP_NOW_SEND_FAIL){
-        ESP_LOGE(TAG_MAIN, "Message not sent correctly");
-        xEventGroupClearBits(xEventGroupAlarm, DATA_SENT_FAILED);
+        /* Message not sent correctly */
+        xEventGroupSetBits(xEventGroupAlarm, DATA_SENT_FAILED);
     }
 
     return;
@@ -100,11 +107,8 @@ static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status
 static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
 
     if (!recv_info->src_addr || !data || len <= 0) {
-        ESP_LOGE(TAG_MAIN, "Receive callback args error. Discard message");
         return;
     }
-
-    ESP_LOGD(TAG_MAIN, "Receive message from sensor or siren");
 
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
@@ -119,32 +123,45 @@ static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *
     return;
 }
 
-/* Send message by espnow protocol */
+/* Send message */
 static bool send_message(uint8_t dst_mac[], node_msg_t msg) {
 
     esp_err_t err = ESP_FAIL;
-    uint8_t num_tentative = NUMBER_ATTEMPTS;
     EventBits_t uxBits;
 
-    xEventGroupClearBits(xEventGroupAlarm, DATA_SENT_SUCCESS | DATA_SENT_FAILED);
-    do {
-        /* Send packet */
+    for (uint8_t i = 0; i < NUMBER_ATTEMPTS; i++) {
+
+        xEventGroupClearBits(xEventGroupAlarm, DATA_SENT_SUCCESS | DATA_SENT_FAILED);
+
         err = esp_now_send(dst_mac, (uint8_t *)&msg, sizeof(msg));
         if (err != ESP_OK) {
-            ESP_LOGE(TAG_MAIN, "Error send: %s", esp_err_to_name(err));
-            num_tentative = 0;
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
         }
-        /* Wait until the data is sent */
-        uxBits = xEventGroupWaitBits(xEventGroupAlarm, DATA_SENT_SUCCESS | DATA_SENT_FAILED, pdTRUE, pdFALSE, portMAX_DELAY);
-        num_tentative--;
-        vTaskDelay(pdMS_TO_TICKS(RETRASMISSION_TIME_MS));
+
+        /* Waits callback function result */
+        uxBits = xEventGroupWaitBits(
+            xEventGroupAlarm,
+            DATA_SENT_SUCCESS | DATA_SENT_FAILED,
+            pdTRUE,
+            pdFALSE,
+            pdMS_TO_TICKS(RETRASMISSION_TIME_MS)
+        );
+
+        /* Success */
+        if (uxBits & DATA_SENT_SUCCESS) {
+            return true;
+        }
+
+        /* Failed */
+        if (uxBits & DATA_SENT_FAILED) {
+            ESP_LOGW(TAG_MAIN, "Send failed, retrying... (%u/%u)", i + 1, NUMBER_ATTEMPTS);
+        } else {
+            ESP_LOGW(TAG_MAIN, "Timeout waiting for send result, retrying... (%u/%u)", i + 1, NUMBER_ATTEMPTS);
+        }
     }
-    while((uxBits & DATA_SENT_FAILED) && num_tentative > 0);
 
-    if(!num_tentative)
-        return false;
-
-    return true;
+    return false;
 }
 
 /* Print hours */
@@ -179,7 +196,6 @@ static void print_msg(node_msg_t node_msg) {
             }
         break;
         case UPDATE:
-        case SYNC:
             ESP_LOGI(TAG_MAIN, "State: %u", node_msg.payload[0]);
             ESP_LOGI(TAG_MAIN, "Battery low detect: %u", node_msg.payload[1]);
         break;
@@ -203,81 +219,91 @@ void receive_task(void *arg) {
 
             if(calc_crc16_msg((uint8_t *)&node_msg, sizeof(node_msg) - sizeof(uint16_t)) != node_msg.crc) {
                 ESP_LOGW(TAG_MAIN_RECEIVE, "Warning, crc16 not correct discard message");
-                continue;
-            }
+            } else {
+                switch(node_msg.header.cmd) {
+                    case ADD:
+                        if(!check_node_inside_list(node_msg.header.id_node)) {
 
-            switch(node_msg.header.cmd) {
-                case ADD:
-                    ESP_LOGD(TAG_MAIN_RECEIVE, "Receive add message");
-                    if(check_node_inside_list(node_msg.header.id_node)) {
-                        ESP_LOGI(TAG_MAIN_RECEIVE, "Add new sensor or siren with device id: %u", node_msg.header.id_node);
+                            /* Add new peer to list */
+                            memset(&peer, 0, sizeof(esp_now_peer_info_t));
+                            peer.channel = ESPNOW_WIFI_CHANNEL;
+                            peer.ifidx = WIFI_IF_STA;
+                            peer.encrypt = false;
+                            memcpy(peer.peer_addr, node_msg.header.mac, MAC_SIZE);
 
-                        /* Add new peer to list */
-                        memset(&peer, 0, sizeof(esp_now_peer_info_t));
-                        peer.channel = ESPNOW_WIFI_CHANNEL;
-                        peer.ifidx = WIFI_IF_STA;
-                        peer.encrypt = false;
-                        memcpy(peer.peer_addr, node_msg.header.mac, MAC_SIZE);
+                            err = esp_now_add_peer(&peer);
+                            if(err != ESP_OK) {
+                                ESP_LOGE(TAG_MAIN_RECEIVE, "Error, peer node %u not added", node_msg.header.id_node);
+                            } else {
+                                ESP_LOGI(TAG_MAIN_RECEIVE, "Peer node %u added correctly", node_msg.header.id_node);
+                                /* Adds sensor to list */
+                                add_node_to_list(node_msg);
 
-                        err = esp_now_add_peer(&peer);
-                        if(err != ESP_OK) {
-                            ESP_LOGE(TAG_MAIN_RECEIVE, "Error, peer node not added");
+                                /* Send response to node */
+                                node_msg = build_node_msg(ADD, ID_GATEWAY, GATEWAY, node_msg.header.id_msg, mac_wifi, "gateway", NULL);
+                                send_message(peer.peer_addr, node_msg);
+                            }
                         } else {
-                            ESP_LOGI(TAG_MAIN_RECEIVE, "Peer node added correctly");
-                            /* Adds sensor to list */
-                            add_node_to_list(node_msg);
+                            ESP_LOGW(TAG_MAIN_RECEIVE, "Warning, node device id %u already exist. Skip", node_msg.header.id_node);
+                        }
+                    break;
+                    case DEL:
+                        if(check_node_inside_list(node_msg.header.id_node)) {
 
                             /* Send response to node */
-                            time_t t;
-                            t = time(NULL);
-                            node_msg = build_node_msg(ADD, ID_GATEWAY, GATEWAY, (esp_random() % 256), mac_wifi, "gateway", &t);
-                            if(xQueueSend(send_queue, &node_msg, pdMS_TO_TICKS(50)) != pdTRUE) {
-                                ESP_LOGW(TAG_MAIN_RECEIVE, "Error, queue full discard message");
+                            node_msg_t node_del_msg = build_node_msg(DEL, ID_GATEWAY, GATEWAY, node_msg.header.id_msg, mac_wifi, "gateway", NULL);
+                            send_message(node_msg.header.mac, node_del_msg);
+
+                            err = esp_now_del_peer(node_msg.header.mac);
+                            if(err != ESP_OK) {
+                                ESP_LOGE(TAG_MAIN_RECEIVE, "Error, peer node %u not removed", node_msg.header.id_node);
+                            } else {
+                                /* Adds sensor to list */
+                                del_node_from_list(node_msg.header.id_node);
+                                ESP_LOGI(TAG_MAIN_RECEIVE, "Peer node %u deleted correctly", node_msg.header.id_node);
                             }
+                        } else {
+                            ESP_LOGW(TAG_MAIN_RECEIVE, "Warning, node device id %u already deleted. Skip", node_msg.header.id_node);
                         }
-                    } else {
-                        ESP_LOGW(TAG_MAIN_RECEIVE, "Warning, node device id %u already exist. Skip", node_msg.header.id_node);
-                    }
-                break;
-                case DEL:
-                    ESP_LOGD(TAG_MAIN_RECEIVE, "Receive delete message");
-                break;
-                case SYNC:
-                    ESP_LOGD(TAG_MAIN_RECEIVE, "Receive sync message response");
-                break;
-                case UPDATE:
-                    ESP_LOGD(TAG_MAIN_RECEIVE, "Receive update message response");
+                    break;
+                    case UPDATE:
+                        /* Receive response from node */
+                        update_node_to_list(node_msg);
+                        ESP_LOGI(TAG_MAIN_RECEIVE, "Update state node id: %u inside list", node_msg.header.id_node);
 
-                    /* Receive response from node */
-                    update_node_to_list(node_msg);
-                    ESP_LOGD(TAG_MAIN_RECEIVE, "Update state node id: %u inside list", node_msg.header.id_node);
+                        node_msg_t node_update_msg = build_node_msg(UPDATE, ID_GATEWAY, GATEWAY, node_msg.header.id_msg, mac_wifi, "gateway", NULL);
+                        send_message(node_msg.header.mac, node_update_msg);
+                    break;
+                    case POWER_ON_ALARM:
+                        ESP_LOGD(TAG_MAIN_RECEIVE, "Power on alarm");
+                        xEventGroupSetBits(xEventGroupAlarm, ACTIVE_ALARM);
+                        xEventGroupClearBits(xEventGroupAlarm, DEACTIVE_ALARM);
+                    break;
+                    case POWER_OFF_ALARM:
+                        ESP_LOGD(TAG_MAIN_RECEIVE, "Power off alarm");
 
-                break;
-                case ACTIVE_ALARM:
-                    ESP_LOGD(TAG_MAIN_RECEIVE, "Active alarm");
-                break;
-                case DEACTIVE_ALARM:
-                    ESP_LOGD(TAG_MAIN_RECEIVE, "Deactive alarm");
-                    /* Stop siren if running */
-                    node_msg = build_node_msg(STOP_SIREN, ID_GATEWAY, GATEWAY, (esp_random() % 256), mac_wifi, "gateway", NULL);
-                    if(xQueueSend(send_queue, &node_msg, pdMS_TO_TICKS(50)) == pdPASS) {
-                        ESP_LOGE(TAG_MAIN, "Error, queue full discard message");
-                    }
-                break;
-                case ALARM:
-                    status_node sn;
-                    memcpy(&sn, node_msg.payload, sizeof(status_node));
-                    ESP_LOGI(TAG_MAIN_RECEIVE, "State %u for id sensor: %u", sn.state, node_msg.header.id_node);
-                    ESP_LOGI(TAG_MAIN_RECEIVE, "Battery low detect: %u for id sensor: %u", sn.battery_low_detect, node_msg.header.id_node);
+                        /* Stop siren if running */
+                        node_msg = build_node_msg(STOP_SIREN, ID_GATEWAY, GATEWAY, (esp_random() % 256), mac_wifi, "gateway", NULL);
+                        send_message(peer.peer_addr, node_msg);
+                        xEventGroupSetBits(xEventGroupAlarm, DEACTIVE_ALARM);
+                        xEventGroupClearBits(xEventGroupAlarm, ACTIVE_ALARM);
 
-                    if(sn.state && (xEventGroupWaitBits(xEventGroupAlarm, ACTIVE_DEACTIVE_ALARM, pdFALSE, pdFALSE, 0) & ACTIVE_DEACTIVE_ALARM)) {
-                        ESP_LOGI(TAG_MAIN_RECEIVE, "Send command for start siren");
-                        node_msg = build_node_msg(START_SIREN, ID_GATEWAY, GATEWAY, (esp_random() % 256), mac_wifi, "gateway", NULL);
-                        if(xQueueSend(send_queue, &node_msg, pdMS_TO_TICKS(50)) == pdPASS) {
-                            ESP_LOGE(TAG_MAIN_RECEIVE, "Error, queue full discard message");
+                    break;
+                    case ALARM:
+                        status_node sn;
+                        memcpy(&sn, node_msg.payload, sizeof(status_node));
+                        ESP_LOGI(TAG_MAIN_RECEIVE, "State %u for id sensor: %u", sn.state, node_msg.header.id_node);
+                        ESP_LOGI(TAG_MAIN_RECEIVE, "Battery low detect: %u for id sensor: %u", sn.battery_low_detect, node_msg.header.id_node);
+
+                        if(sn.state && (xEventGroupWaitBits(xEventGroupAlarm, ACTIVE_ALARM, pdFALSE, pdFALSE, 0) & ACTIVE_ALARM)) {
+                            ESP_LOGI(TAG_MAIN_RECEIVE, "Send command for start siren");
+                            node_msg = build_node_msg(START_SIREN, ID_GATEWAY, GATEWAY, (esp_random() % 256), mac_wifi, "gateway", NULL);
+                            send_message(peer.peer_addr, node_msg);
+                        } else {
+                            ESP_LOGI(TAG_MAIN_RECEIVE, "Alarm not active, not start siren");
                         }
-                    }
-                break;
+                    break;
+                }
             }
         }
 
@@ -287,27 +313,17 @@ void receive_task(void *arg) {
     return;
 }
 
-/**/
-void sync_nodes(void* arg) {
-
-    ESP_LOGI(TAG_MAIN, "Funzione eseguita (esp_timer)!");
-
-    return;
-}
-
 /* Run send task */
-void send_task(void *arg) {
+void sync_time() {
 
     static char strftime_buf[64];
-    static node_msg_t node_msg;
-    static node_t node;
     time_t now;
     struct tm timeinfo;
 
     time(&now);
     localtime_r(&now, &timeinfo);
 
-    if (timeinfo.tm_year < (2025 - 1900)) {
+    if (timeinfo.tm_year < (2100 - 1900)) {
         obtain_time();
         time(&now);
     }
@@ -318,20 +334,7 @@ void send_task(void *arg) {
     time(&target_time);
     localtime_r(&target_time, &timeinfo);
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-    ESP_LOGI(TAG_MAIN, "Current time in Italy: %s", strftime_buf);
-
-    while(1) {
-
-        if(xQueueReceive(send_queue, &node_msg, pdMS_TO_TICKS(50)) != pdTRUE) {
-            continue;
-        }
-
-        /* Send message */
-        node = get_node_from_list(node_msg.header.id_node);
-        send_message(node.mac, node_msg);
-
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+    ESP_LOGI(TAG_MAIN, "Current time: %s", strftime_buf);
 
     return;
 }
@@ -343,16 +346,11 @@ void app_main(void) {
 
     /* Init nvs flash */
     err = nvs_flash_init();
-    if (err != ESP_OK) {
-        ESP_LOGD(TAG_MAIN, "Error, flash not init");
-
-        /* Erase flash */
-        err = nvs_flash_erase();
-        if (err != ESP_OK) {
-            ESP_LOGD(TAG_MAIN, "Error, flash not erase");
-            return;
-        }
-        nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ESP_ERROR_CHECK(nvs_flash_init());
+    } else {
+        ESP_ERROR_CHECK(err);
     }
 
     /* Initialize stack */
@@ -362,7 +360,11 @@ void app_main(void) {
         return;
     }
 
-    esp_event_loop_create_default();
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK) {
+        ESP_LOGD(TAG_MAIN, "Error, event loop not created");
+        return;
+    }
 
     /* Read MAC WiFi address */
     err = esp_read_mac(mac_wifi, ESP_MAC_WIFI_STA);
@@ -399,19 +401,12 @@ void app_main(void) {
         return;
     }
 
-    /* Create node mutex for messages list */
-    node_mutex = xSemaphoreCreateMutex();
-    if(!node_mutex) {
-        ESP_LOGD(TAG_MAIN, "Error, mutex not allocted");
-        return;
-    }
+    /* Sync time */
+    sync_time();
 
-    /* Create send queue */
-    send_queue = xQueueCreate(NODE_QUEUE_SIZE, sizeof(node_msg_t));
-    if(!send_queue) {
-        ESP_LOGD(TAG_MAIN, "Error, send queue not allocated");
+    /* Init node list mutex */
+    if (!init_node_list_mutex())
         return;
-    }
 
     /* Create receive queue */
     receive_queue = xQueueCreate(NODE_QUEUE_SIZE, sizeof(node_msg_t));
@@ -434,27 +429,11 @@ void app_main(void) {
         return;
     }
 
-    /* Start send task */
-    if(xTaskCreatePinnedToCore(send_task, "send_task", 1024 * 3, NULL, 0, NULL, 1) != pdPASS) {
-        ESP_LOGD(TAG_MAIN, "Error, send task not started");
-        return;
-    }
-
     /* Start receive task */
-    if(xTaskCreatePinnedToCore(receive_task, "receive_task", 1024 * 2, NULL, 0, NULL, 0) != pdPASS) {
+    if(xTaskCreatePinnedToCore(receive_task, "receive_task", 1024 * 4, NULL, 1, NULL, 0) != pdPASS) {
         ESP_LOGD(TAG_MAIN, "Error, receive task not started");
         return;
     }
-
-    /* Configure timer for run function every 4 minutes */
-    const esp_timer_create_args_t timer_args = {
-        .callback = &sync_nodes,
-        .name = "sync_node"
-    };
-
-    esp_timer_handle_t periodic_timer;
-    esp_timer_create(&timer_args, &periodic_timer);
-    esp_timer_start_periodic(periodic_timer, 4 * 60 * 1000000); // 4 minuti in µs
 
     return;
 }
